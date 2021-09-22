@@ -48,7 +48,7 @@ class Seq2Seq(nn.Module):
             'optimizer': optimizer_state_dict
         }
 
-        model_save_path = os.path.join("./model/model_%d" % int(time.time()))
+        model_save_path = os.path.join("./model/model_%s" % time.strftime("%m_%d_%H_%M", time.localtime()))
         if not os.path.exists("./model"):
             os.mkdir("./model")
 
