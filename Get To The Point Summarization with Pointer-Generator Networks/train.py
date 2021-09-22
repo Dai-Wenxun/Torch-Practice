@@ -1,5 +1,6 @@
 import time
-
+import numpy as np
+import torch
 import torch.utils.data as data
 from torch.optim.adagrad import Adagrad
 from torch.utils.tensorboard import SummaryWriter
@@ -7,6 +8,8 @@ from torch.utils.tensorboard import SummaryWriter
 import config
 from model import Seq2Seq
 from data import Vocab, miDataset, data_process
+
+device = torch.device(config.device)
 
 if __name__ == '__main__':
     tokens = 'abcdefghijklmnopqrstuvwxyz'
@@ -21,7 +24,7 @@ if __name__ == '__main__':
     data_loader = data.DataLoader(train_dataset, batch_size=config.batch_size)
 
     # model
-    model = Seq2Seq()
+    model = Seq2Seq().to(device)
 
     # optimizer
     optimizer = Adagrad(model.parameters(), lr=config.lr,
@@ -29,18 +32,21 @@ if __name__ == '__main__':
     # logger
     writer = SummaryWriter("./runs/%s" % time.strftime("%m_%d_%H_%M", time.localtime()))
 
-    iter_id = 0
-    while iter_id < config.max_iterations:
+    for epoch in range(1, config.max_epochs+1):
+        epoch_loss = []
         for batch in data_loader:
-            optimizer.zero_grad()
-            loss = model(batch)
-            iter_id += 1
-            if iter_id % config.log_iterations == 0:
-                writer.add_scalar("loss", loss.item(), iter_id)
-                print("iter:{}, loss:{}".format(iter_id, loss.item()))
+            for i in range(len(batch)):
+                batch[i] = batch[i].to(device)
 
+            loss = model(batch)
+            epoch_loss.append(loss.item())
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-    model.save_model(optimizer.state_dict())
+        if epoch % config.log_epochs == 0:
+            writer.add_scalar("loss", np.average(epoch_loss), epoch)
+            print("epoch:{}, loss:{}".format(epoch, np.average(epoch_loss)))
 
+    model.save_model()

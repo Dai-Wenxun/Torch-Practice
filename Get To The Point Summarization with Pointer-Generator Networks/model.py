@@ -6,12 +6,12 @@ import torch.nn as nn
 
 import config
 from module import Encoder, Decoder, ReduceState
+from data import Vocab
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, ):
+    def __init__(self):
         super(Seq2Seq, self).__init__()
-
         self.encoder = Encoder()
         self.reducer = ReduceState()
         self.decoder = Decoder()
@@ -40,19 +40,46 @@ class Seq2Seq(nn.Module):
 
         return loss
 
-    def save_model(self, optimizer_state_dict):
+    def save_model(self):
         state = {
             'encoder_state_dict': self.encoder.state_dict(),
             'decoder_state_dict': self.decoder.state_dict(),
             'reducer_state_dict': self.reducer.state_dict(),
-            'optimizer': optimizer_state_dict
         }
 
-        model_save_path = os.path.join("./model/model_%s" % time.strftime("%m_%d_%H_%M", time.localtime()))
         if not os.path.exists("./model"):
             os.mkdir("./model")
 
-        torch.save(state, model_save_path)
+        torch.save(state, config.model_path)
 
-    def translate(self, vocab):
-        pass
+    def load_model(self):
+        state = torch.load(config.model_path)
+        self.encoder.load_state_dict(state['encoder_state_dict'])
+        self.decoder.load_state_dict(state['decoder_state_dict'])
+        self.reducer.load_state_dict(state['reducer_state_dict'])
+
+    def translate(self, vocab: Vocab, batch: list):
+        src_tensor, _, src_lens, _, _ = batch
+
+        encoder_outputs, encoder_features, hidden = self.encoder(src_tensor, src_lens)
+
+        s_t_1 = self.reducer(hidden)
+
+        for b_id in range(len(batch[0])):
+            id_list = []
+            y_t_1 = torch.tensor([vocab.STAT_id()], dtype=torch.int64, device=src_tensor.device)
+
+            for i in range(0, config.max_dec_steps):
+                final_dist, s_t_1 = self.decoder(y_t_1, (s_t_1[0][:, b_id, :].unsqueeze(1),
+                                                         s_t_1[1][:, b_id, :].unsqueeze(1)))
+
+                y_t_1 = torch.argmax(final_dist.view(-1)).unsqueeze(0)  # greedy search
+
+                if y_t_1.item() == vocab.END_id():
+                    break
+
+                id_list.append(y_t_1.item())
+
+            print(vocab.translate(src_tensor[b_id][:src_lens[b_id]].tolist()), "->", vocab.translate(id_list))
+
+

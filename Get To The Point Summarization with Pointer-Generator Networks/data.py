@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
-from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 
 SENTENCE_STAT = '<s>'
@@ -34,6 +33,15 @@ class Vocab:
         if word_id not in self._id_to_word:
             raise ValueError('Id not found in vocab: %d' % word_id)
         return self._id_to_word[word_id]
+
+    def vocab_size(self):
+        return self._count
+
+    def STAT_id(self):
+        return self.word2id(SENTENCE_STAT)
+
+    def END_id(self):
+        return self.word2id(SENTENCE_END)
 
     def translate(self, id_list):
         return "".join(self.id2word(int(word_id)) for word_id in id_list)
