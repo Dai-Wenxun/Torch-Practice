@@ -24,7 +24,7 @@ class Attention(nn.Module):
         # (B x L) x hidden_size*2
         attn_features = encoder_features + decoder_features
         # B x L
-        e = self.v(F.tanh(attn_features)).view(-1, src_len)
+        e = self.v(torch.tanh(attn_features)).view(-1, src_len)
         attn_dist = F.softmax(e, dim=1)*encoder_pad_mask
 
         norms_factor = attn_dist.sum(1, keepdim=True)
@@ -88,7 +88,8 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.embed = nn.Embedding(config.vocab_size, config.emb_dim)
         self.lstm = nn.LSTM(config.emb_dim, config.hidden_size, batch_first=True)
-        self.fc_out = nn.Linear(config.hidden_size, config.vocab_size)
+        self.V = nn.Linear(config.hidden_size * 3, config.hidden_size)
+        self.V_dot = nn.Linear(config.hidden_size, config.vocab_size)
         self.apply(init_weights)
 
         self.context = nn.Linear(config.hidden_size * 2 + config.emb_dim, config.emb_dim)
@@ -108,9 +109,11 @@ class Decoder(nn.Module):
         # B x hidden_size*2
         c_t = self.attention(s_t_hat, encoder_outputs, encoder_features, encoder_pad_mask)
 
-        final_dist = F.softmax(self.fc_out(output.squeeze(1)), dim=1)
+        # B x vocab_size
+        out = self.V_dot(self.V(torch.cat((output.squeeze(1), c_t), 1)))
+        final_dist = F.softmax(out, dim=1)
 
-        return final_dist, s_t, c_t  # final_dist: B x vocab_size
+        return final_dist, s_t, c_t
 
 
 def init_weights(m):

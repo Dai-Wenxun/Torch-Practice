@@ -12,5 +12,5 @@ rand_unif_init_mag = 0.02
 trunc_norm_init_std = 1e-4
 lr = 0.15
 eps = 1e-12
-max_epochs = 3000
+max_epochs = 1000
 log_epochs = 1
