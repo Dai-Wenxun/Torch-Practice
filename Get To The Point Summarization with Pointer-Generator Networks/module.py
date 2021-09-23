@@ -1,10 +1,39 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.data as data
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 import config
+
+
+class Attention(nn.Module):
+    def __init__(self):
+        super(Attention, self).__init__()
+
+        self.W_s_b_attn = nn.Linear(config.hidden_size * 2, config.hidden_size * 2)
+
+        self.v = nn.Linear(config.hidden_size * 2, 1, bias=False)
+
+    def forward(self, s_t_hat, encoder_outputs, encoder_features, enc_padding_mask):
+        src_len = encoder_outputs.size(1)
+
+        # B x L x hidden_size*2
+        decoder_features = self.W_s_b_attn(s_t_hat).unsqueeze(1).expand(-1, src_len, config.hidden_size*2).contiguous()
+        # (B x L) x hidden_size*2
+        decoder_features = decoder_features.view(-1, config.hidden_size * 2)
+        # (B x L) x hidden_size*2
+        attn_features = encoder_features + decoder_features
+        # B x L
+        e = self.v(F.tanh(attn_features)).view(-1, src_len)
+        attn_dist = F.softmax(e, dim=1)*enc_padding_mask
+
+        norms_factor = attn_dist.sum(1, keepdim=True)
+        attn_dist /= norms_factor
+
+        # B x hidden_size*2
+        c_t = torch.bmm(attn_dist.unsqueeze(1), encoder_outputs).view(-1, config.hidden_size * 2)
+
+        return c_t
 
 
 class Encoder(nn.Module):
@@ -15,7 +44,7 @@ class Encoder(nn.Module):
 
         self.apply(init_weights)
 
-        self.linear = nn.Linear(config.hidden_size * 2, config.hidden_size * 2, bias=False)
+        self.W_h = nn.Linear(config.hidden_size * 2, config.hidden_size * 2, bias=False)
 
     def forward(self, src_tensor, src_lens):
         embedded = self.embed(src_tensor)  # B x L x emb_dim
@@ -27,8 +56,8 @@ class Encoder(nn.Module):
         encoder_outputs, _ = pad_packed_sequence(output, batch_first=True)  # B x L x hidden_size*2
         encoder_outputs = encoder_outputs.contiguous()
 
-        encoder_features = encoder_outputs.view(-1, 2 * config.hidden_size)  # (B x L) x hidden_size*2
-        encoder_features = self.linear(encoder_features)
+        encoder_features = encoder_outputs.view(-1, config.hidden_size * 2)  # (B x L) x hidden_size*2
+        encoder_features = self.W_h(encoder_features)
 
         return encoder_outputs, encoder_features, hidden  # hidden[0]: 2 x B x hidden_size
 
@@ -62,17 +91,26 @@ class Decoder(nn.Module):
         self.fc_out = nn.Linear(config.hidden_size, config.vocab_size)
         self.apply(init_weights)
 
-    def forward(self, y_t_1, s_t_1):
+        self.context = nn.Linear(config.hidden_size * 2 + config.emb_dim, config.emb_dim)
+        self.attention = Attention()
+
+    def forward(self, y_t_1, s_t_1, c_t_1, encoder_outputs, encoder_features, encoder_pad_mask):
         # B x emb_dim
         y_t_1_embedded = self.embed(y_t_1)
+        x = self.context(torch.cat((y_t_1_embedded, c_t_1), 1))
 
         # output: B x 1 x hidden_size
         # s_t[0]: 1 x B x hidden_size
-        output, s_t = self.lstm(y_t_1_embedded.unsqueeze(1), s_t_1)
+        output, s_t = self.lstm(x.unsqueeze(1), s_t_1)
+
+        s_t_hat = torch.cat((s_t[0].view(-1, config.hidden_size), s_t[1].view(-1, config.hidden_size)), 1)
+
+        # B x hidden_size*2
+        c_t = self.attention(s_t_hat, encoder_outputs, encoder_features, encoder_pad_mask)
 
         final_dist = F.softmax(self.fc_out(output.squeeze(1)), dim=1)
 
-        return final_dist, s_t  # final_dist: B x vocab_size
+        return final_dist, s_t, c_t  # final_dist: B x vocab_size
 
 
 def init_weights(m):

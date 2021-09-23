@@ -1,12 +1,11 @@
-import os.path
-import time
+import os
 
 import torch
 import torch.nn as nn
 
 import config
 from module import Encoder, Decoder, ReduceState
-from data import Vocab
+from data import Vocab, make_encoder_mask
 
 
 class Seq2Seq(nn.Module):
@@ -21,13 +20,17 @@ class Seq2Seq(nn.Module):
 
         encoder_outputs, encoder_features, hidden = self.encoder(src_tensor, src_lens)
 
+        encoder_mask = make_encoder_mask(src_lens)
+
         s_t_1 = self.reducer(hidden)
+        c_t_1 = torch.zeros((encoder_mask.size(0), config.hidden_size * 2), device=src_tensor.device)
 
         step_losses = []
 
         for i in range(0, tgt_lens.max()-1):
             y_t_1 = tgt_tensor[:, i]
-            final_dist, s_t_1 = self.decoder(y_t_1, s_t_1)
+            final_dist, s_t_1, c_t_1 = self.decoder(y_t_1, s_t_1, c_t_1,
+                                                    encoder_outputs, encoder_features, encoder_mask)
 
             gold_probs = torch.gather(final_dist, 1, tgt_tensor[:, i + 1].unsqueeze(1))
             step_loss = -torch.log(gold_probs + config.eps)
@@ -46,10 +49,8 @@ class Seq2Seq(nn.Module):
             'decoder_state_dict': self.decoder.state_dict(),
             'reducer_state_dict': self.reducer.state_dict(),
         }
-
         if not os.path.exists("./model"):
             os.mkdir("./model")
-
         torch.save(state, config.model_path)
 
     def load_model(self):

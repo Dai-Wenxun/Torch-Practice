@@ -1,6 +1,4 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.data as data
 
 
@@ -91,3 +89,11 @@ def data_process(src: list, tgt: list, vocab: Vocab):
         tgt_mask[b][:len(id_list)].fill_(1.)
 
     return src_tensor, tgt_tensor, src_lens, tgt_lens, tgt_mask
+
+
+def make_encoder_mask(src_lens):
+    # seq_lens: B
+    mask = torch.ones((src_lens.size(0), src_lens.max()), device=src_lens.device)
+    for i in range(mask.size(0)):
+        mask[i][src_lens[i]:].fill_(0)
+    return mask
