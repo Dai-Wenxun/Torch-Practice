@@ -14,7 +14,7 @@ class Attention(nn.Module):
 
         self.v = nn.Linear(config.hidden_size * 2, 1, bias=False)
 
-    def forward(self, s_t_hat, encoder_outputs, encoder_features, enc_padding_mask):
+    def forward(self, s_t_hat, encoder_outputs, encoder_features, encoder_pad_mask):
         src_len = encoder_outputs.size(1)
 
         # B x L x hidden_size*2
@@ -25,7 +25,7 @@ class Attention(nn.Module):
         attn_features = encoder_features + decoder_features
         # B x L
         e = self.v(F.tanh(attn_features)).view(-1, src_len)
-        attn_dist = F.softmax(e, dim=1)*enc_padding_mask
+        attn_dist = F.softmax(e, dim=1)*encoder_pad_mask
 
         norms_factor = attn_dist.sum(1, keepdim=True)
         attn_dist /= norms_factor

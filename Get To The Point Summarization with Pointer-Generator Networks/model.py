@@ -27,7 +27,7 @@ class Seq2Seq(nn.Module):
 
         step_losses = []
 
-        for i in range(0, tgt_lens.max()-1):
+        for i in range(0, tgt_lens.max() - 1):
             y_t_1 = tgt_tensor[:, i]
             final_dist, s_t_1, c_t_1 = self.decoder(y_t_1, s_t_1, c_t_1,
                                                     encoder_outputs, encoder_features, encoder_mask)
@@ -63,16 +63,19 @@ class Seq2Seq(nn.Module):
         src_tensor, _, src_lens, _, _ = batch
 
         encoder_outputs, encoder_features, hidden = self.encoder(src_tensor, src_lens)
+        encoder_pad_mask = make_encoder_mask(src_lens)
 
         s_t_1 = self.reducer(hidden)
 
         for b_id in range(len(batch[0])):
             id_list = []
             y_t_1 = torch.tensor([vocab.STAT_id()], dtype=torch.int64, device=src_tensor.device)
-
+            b_s_t_1 = (s_t_1[0][:, b_id, :].unsqueeze(1), s_t_1[1][:, b_id, :].unsqueeze(1))
+            b_c_t_1 = torch.zeros((encoder_pad_mask.size(0), config.hidden_size * 2), device=src_tensor.device)
             for i in range(0, config.max_dec_steps):
-                final_dist, s_t_1 = self.decoder(y_t_1, (s_t_1[0][:, b_id, :].unsqueeze(1),
-                                                         s_t_1[1][:, b_id, :].unsqueeze(1)))
+
+                final_dist, b_s_t_1, b_c_t_1 = self.decoder(y_t_1, b_s_t_1, b_c_t_1,
+                                                            encoder_outputs, encoder_features, encoder_pad_mask)
 
                 y_t_1 = torch.argmax(final_dist.view(-1)).unsqueeze(0)  # greedy search
 
@@ -82,5 +85,3 @@ class Seq2Seq(nn.Module):
                 id_list.append(y_t_1.item())
 
             print(vocab.translate(src_tensor[b_id][:src_lens[b_id]].tolist()), "->", vocab.translate(id_list))
-
-
