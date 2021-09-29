@@ -2,7 +2,7 @@
 
 ### (Bilingual Evaluation Understudy，双语评估辅助工具)
 
-<table style="border-style:none">
+<table border-style=none>
     <tbody>
         <tr>
             <td><img src=./images/bleu-1.jpg width="500"></td>
@@ -10,12 +10,7 @@
         </tr>
     </tbody>
 </table>
-<!-- <div align=center><img src=./images/bleu-1.jpg width="200" style={display:inline-block}></div>
-</br>
-<div align=center><img src=./images/bleu-2.jpg width="400"></div>
-</br>
- -->
- 
+
 ```python
 from nltk.translate.bleu_score import sentence_bleu
 def sentence_bleu(
