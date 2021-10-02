@@ -35,7 +35,7 @@ bleu_1 =  sentence_bleu(references, hypothesis, weights=(1, 0, 0, 0)) # 1/7
 
 ### (Perplexity 困惑度)
 
-![](D:\WorkSpace\AI\repo\Criterions Summary\images\ppl-1.png)
+![](./images/ppl-1.png)
 
-![ppl-2](D:\WorkSpace\AI\repo\Criterions Summary\images\ppl-2.png)
+![ppl-2](./images/ppl-2.png)
 
