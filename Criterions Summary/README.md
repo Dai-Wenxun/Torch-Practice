@@ -2,9 +2,14 @@
 
 ### (Bilingual Evaluation Understudy，双语评估辅助工具)
 
-![bleu-1](./images/bleu-1.jpg)
-
-![bleu-2](./images/bleu-2.jpg)
+<table border-style=none>
+    <tbody>
+        <tr>
+            <td><img src=./images/bleu-1.jpg width="500"></td>
+            <td><img src=./images/bleu-2.jpg width="500"></td>
+        </tr>
+    </tbody>
+</table>
 
 ```python
 from nltk.translate.bleu_score import sentence_bleu
