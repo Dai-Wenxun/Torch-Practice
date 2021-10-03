@@ -11,6 +11,7 @@
     </tbody>
 </table>
 
+```python
 from nltk.translate.bleu_score import sentence_bleu
 def sentence_bleu(
     references,
@@ -19,7 +20,6 @@ def sentence_bleu(
     smoothing_function=None,
     auto_reweigh=False,
 )
-
 references = [["there", "is", "a", "cat", "on", "the", "table"]]
 hypothesis = [ "a", "cat", "is", "on", "the", "table"]
 bleu_1 = sentence_bleu(references, hypothesis, weights=(1, 0, 0, 0)) # exp(-1/6)
@@ -28,10 +28,10 @@ bleu_4_avg = sentence_bleu(references, hypothesis) # 6.433932628423997e-78 --> 0
 
 hypothesis = ["a", "a", "a", "a", "a", "a", "a"]
 bleu_1 =  sentence_bleu(references, hypothesis, weights=(1, 0, 0, 0)) # 1/7 
-
+```
 ## PPL
 
-### (Perplexity 困惑度)PPL
+### (Perplexity 困惑度)
 
 <div align=center> 
 	<img src='./images/ppl-1.png' width=300px>

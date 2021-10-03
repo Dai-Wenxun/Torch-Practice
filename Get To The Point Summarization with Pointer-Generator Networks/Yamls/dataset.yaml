@@ -1,0 +1,13 @@
+# special tokens
+max_vocab_size: 6000
+max_source_length: 400
+max_target_length: 100.1
+split_strategy: "load_split"
+overlength_strategy: "truncate"
+tokenize_strategy: "by_space"
+source_language: english
+target_language: english
+source_suffix: source
+target_suffix: target
+share_vocab: True
+task_type: "summarization"
