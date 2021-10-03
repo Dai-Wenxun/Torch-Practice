@@ -4,7 +4,7 @@ use_gpu: True
 seed: 2020
 state: INFO
 reproducibility: True
-data_path: 'dataset/'
+data_path: 'data/'
 checkpoint_dir: 'saved/'
 generated_text_dir: 'generated/'
 

@@ -2,18 +2,21 @@ import os
 import yaml
 import torch
 
+from utils import get_local_time
 
-class Config(object):
+
+class Config:
     def __init__(self):
         self._load_yamls()
         self._init_device()
+        self._set_default_parameters()
 
     def _load_yamls(self):
         self.config_dict = {}
         current_path = os.path.dirname(__file__)
-        overall_config_file = os.path.join(current_path, 'Yamls/overall.yaml')
-        model_config_file = os.path.join(current_path, 'Yamls/model.yaml')
-        dataset_config_file = os.path.join(current_path, 'Yamls/dataset.yaml')
+        overall_config_file = os.path.join(current_path, 'yamls/overall.yaml')
+        model_config_file = os.path.join(current_path, 'yamls/model.yaml')
+        dataset_config_file = os.path.join(current_path, 'yamls/dataset.yaml')
 
         for file in [overall_config_file, model_config_file, dataset_config_file]:
             with open(file, 'r', encoding='utf-8') as f:
@@ -24,6 +27,11 @@ class Config(object):
             gpu_id = self.config_dict['gpu_id']
             self.config_dict['device'] = torch.device(f'cuda:{gpu_id}'
                                                       if torch.cuda.is_available() else 'cpu')
+
+    def _set_default_parameters(self):
+        current_path = os.path.dirname(__file__)
+        self.config_dict['data_path'] = os.path.join(current_path, 'data/')
+        self.config_dict['filename'] = 'Fire-At-{}'.format(get_local_time())
 
     def __getitem__(self, item):
         if item in self.config_dict:
