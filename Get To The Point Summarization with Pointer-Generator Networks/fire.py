@@ -1,7 +1,8 @@
 
 from config import Config
 from dataset import Dataset
-from utils import init_seed, data_preparation
+from dataloader import Dataloader
+from utils import init_seed
 
 
 if __name__ == '__main__':
@@ -12,7 +13,13 @@ if __name__ == '__main__':
 
     datatset = Dataset(config)
 
-    train_dataset, valid_dataset, test_dataset = datatset.build()
-    
+    train_dataset, _, _ = datatset.build()
 
+    train_data = Dataloader(
+        config=config,
+        dataset=train_dataset,
+        batch_size=config['train_batch_size'],
+        shuffle=False,
+        drop_last=False
+    )
 

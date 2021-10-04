@@ -10,7 +10,7 @@ generated_text_dir: 'generated/'
 
 # training settings
 epochs: -1
-train_batch_size: 10
+train_batch_size: 2
 learner: adam
 learning_rate: 0.001
 eval_step: 1
@@ -20,5 +20,5 @@ grad_clip: 1.0
 # evaluation settings
 metrics: ["bleu"]
 n_grams: [1,2,3,4,5]
-eval_batch_size: 10
+eval_batch_size: 2
 

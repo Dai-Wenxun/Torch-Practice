@@ -1,13 +1,7 @@
 import os
 
 from data_utils import detect_restored, load_data, build_vocab, dump_data, load_restored
-
-
-class SpecialTokens:
-    PAD = "<|pad|>"
-    UNK = "<|unk|>"
-    SOS = "<|startoftext|>"
-    EOS = "<|endoftext|>"
+from enum_type import SpecialTokens
 
 
 class Dataset:
