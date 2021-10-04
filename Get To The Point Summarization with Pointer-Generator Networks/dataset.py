@@ -77,3 +77,21 @@ class Dataset:
             self.data_path, self.source_suffix, self.target_suffix
         )
         self.max_vocab_size = len(self.idx2token)
+
+    def build(self):
+        corpus_list = []
+        for i, prefix in enumerate(['train', 'dev', 'test']):
+            source_text_data = self.source_text_data[i]
+            target_text_data = self.target_text_data[i]
+            tp_data = {
+                'idx2token': self.idx2token,
+                'token2idx': self.token2idx,
+                'source_text_data': source_text_data,
+                'target_text_data': target_text_data,
+                'vocab_size': self.max_vocab_size,
+                'max_source_length': self.max_source_length,
+                'max_target_length': self.max_target_length,
+            }
+            corpus_list.append(tp_data)
+
+        return corpus_list

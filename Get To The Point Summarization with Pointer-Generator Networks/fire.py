@@ -12,6 +12,7 @@ if __name__ == '__main__':
 
     datatset = Dataset(config)
 
-    pass
+    train_dataset, valid_dataset, test_dataset = datatset.build()
+    
 
 
