@@ -125,6 +125,9 @@ class Dataloader:
         extra_zeros = torch.zeros(len(oovs_list), max_oovs_num)
         return extra_zeros
 
+    def __len__(self):
+        return len(self.source_text_idx_data)
+
     def __iter__(self):
         if self.shuffle:
             self._shuffle()

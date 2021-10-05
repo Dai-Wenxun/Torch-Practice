@@ -122,7 +122,7 @@ class Model(nn.Module):
         extra_zeros = corpus['extra_zeros']
         extended_source_idx = corpus['extended_source_idx']
 
-        vocab_dists, _ = self.decoder(
+        vocab_dists, _, _ = self.decoder(
             input_embeddings, context, encoder_hidden_states, encoder_outputs, encoder_masks,
             extra_zeros, extended_source_idx
         )

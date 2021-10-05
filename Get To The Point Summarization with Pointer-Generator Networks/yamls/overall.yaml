@@ -3,13 +3,13 @@ gpu_id: 0
 use_gpu: True
 seed: 2020
 state: INFO
-reproducibility: True
+reproducibility: False
 data_path: 'data/'
 checkpoint_dir: 'saved/'
 generated_text_dir: 'generated/'
 
 # training settings
-epochs: -1
+epochs: 100
 train_batch_size: 2
 learner: adam
 learning_rate: 0.001

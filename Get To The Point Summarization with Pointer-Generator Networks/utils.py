@@ -1,4 +1,3 @@
-import os
 import torch
 import random
 import datetime

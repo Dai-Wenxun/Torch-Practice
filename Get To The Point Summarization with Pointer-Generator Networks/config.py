@@ -27,6 +27,8 @@ class Config:
             gpu_id = self.config_dict['gpu_id']
             self.config_dict['device'] = torch.device(f'cuda:{gpu_id}'
                                                       if torch.cuda.is_available() else 'cpu')
+        else:
+            self.config_dict['device'] = torch.device('cpu')
 
     def _set_default_parameters(self):
         current_path = os.path.dirname(__file__)

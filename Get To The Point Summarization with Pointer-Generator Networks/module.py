@@ -48,7 +48,7 @@ class Decoder(nn.Module):
     def forward(self, input_embeddings, context, decoder_hidden_states, encoders_outputs, encoder_masks,
                 extra_zeros, extended_source_idx):
         final_vocab_dists = []
-        batch_size, dec_length = input_embeddings.size()[:2]
+        dec_length = input_embeddings.size(1)
 
         for step in range(dec_length):
             step_input_embeddings = input_embeddings[:, step, :].unsqueeze(1)  # B x 1 x 128
