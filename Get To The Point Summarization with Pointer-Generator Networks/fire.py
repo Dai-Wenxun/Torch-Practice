@@ -1,25 +1,20 @@
 
 from config import Config
-from dataset import Dataset
-from dataloader import Dataloader
+from model import Model
 from utils import init_seed
 
+from utils import data_preparation
 
 if __name__ == '__main__':
-    # fire()
     config = Config()
 
     init_seed(config['seed'], config['reproducibility'])
 
-    datatset = Dataset(config)
+    train_data, valid_data, test_data = data_preparation(config)
 
-    train_dataset, _, _ = datatset.build()
+    b = next(train_data)
 
-    train_data = Dataloader(
-        config=config,
-        dataset=train_dataset,
-        batch_size=config['train_batch_size'],
-        shuffle=False,
-        drop_last=False
-    )
+    model = Model(config, train_data).to(config['device'])
+
+    model(b)
 

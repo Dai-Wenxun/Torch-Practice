@@ -5,13 +5,38 @@ import datetime
 import numpy as np
 
 from dataset import Dataset
-
+from dataloader import Dataloader
 
 
 def data_preparation(config):
     dataset = Dataset(config)
+    train_dataset, valid_dataset, test_dataset = dataset.build()
 
+    train_data = Dataloader(
+        config=config,
+        dataset=train_dataset,
+        batch_size=config['train_batch_size'],
+        shuffle=False,
+        drop_last=False
+    )
 
+    valid_data = Dataloader(
+        config=config,
+        dataset=valid_dataset,
+        batch_size=config['train_batch_size'],
+        shuffle=False,
+        drop_last=False
+    )
+
+    test_data = Dataloader(
+        config=config,
+        dataset=test_dataset,
+        batch_size=config['eval_batch_size'],
+        shuffle=False,
+        drop_last=False
+    )
+
+    return train_data, valid_data, test_data
 
 
 def get_local_time():
@@ -33,3 +58,7 @@ def init_seed(seed, reproducibility):
     else:
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
+
+
+def greedy_search(vocab_dist):
+    return vocab_dist.view(-1).argmax().item()

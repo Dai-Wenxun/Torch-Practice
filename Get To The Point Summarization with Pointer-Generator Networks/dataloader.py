@@ -22,7 +22,7 @@ class Dataloader:
         self.pr = 0
         self.std_pr = 0
 
-        self.vocab_size = config['max_vocab_size']
+        self.vocab_size = dataset['vocab_size']
         self.max_source_length = dataset['max_source_length']
         self.max_target_length = dataset['max_target_length']
 
@@ -31,7 +31,8 @@ class Dataloader:
 
     def _get_preset(self):
         self.source_text_idx_data = []
-        self.target_text_idx_data = []
+        self.input_target_text_idx_data = []
+        self.output_target_text_idx_data = []
         self.source_idx_length_data = []
         self.target_idx_length_data = []
         self.extended_source_text_idx_data = []
@@ -47,13 +48,16 @@ class Dataloader:
             source_text_idx = [self.token2idx.get(w, self.unknown_token_idx) for w in source_text]
             extended_source_text_idx, oovs = self._article2ids(source_text)
 
-            target_text_idx = [self.sos_token_idx] + self._abstract2ids(target_text, oovs) + \
-                              [self.eos_token_idx]
+            input_target_text_idx = [self.sos_token_idx] + [self.token2idx.get(w, self.unknown_token_idx)
+                                                            for w in target_text]
+
+            output_target_text_idx = self._abstract2ids(target_text, oovs) + [self.eos_token_idx]
 
             self.source_text_idx_data.append(source_text_idx)
-            self.target_text_idx_data.append(target_text_idx)
+            self.input_target_text_idx_data.append(input_target_text_idx)
+            self.output_target_text_idx_data.append(output_target_text_idx)
             self.source_idx_length_data.append(len(source_text_idx))
-            self.target_idx_length_data.append(len(target_text_idx))
+            self.target_idx_length_data.append(len(input_target_text_idx))
             self.extended_source_text_idx_data.append(extended_source_text_idx)
             self.oovs_list.append(oovs)
 
@@ -105,7 +109,7 @@ class Dataloader:
 
     @property
     def pr_end(self):
-        return len(self.target_text_idx_data)
+        return len(self.input_target_text_idx_data)
 
     def _pad_batch_sequence(self, text_idx_data, idx_length_data):
         max_len = max(idx_length_data)
@@ -129,9 +133,9 @@ class Dataloader:
     def _shuffle(self):
         temp = list(
             zip(
-                self.source_text_data, self.source_text_idx_data, self.source_idx_length_data, self.target_text_data,
-                self.target_text_idx_data, self.target_idx_length_data, self.extended_source_text_idx_data,
-                self.oovs_list
+                self.source_text_data, self.source_text_idx_data, self.source_idx_length_data,
+                self.target_text_data, self.input_target_text_idx_data, self.output_target_text_idx_data,
+                self.target_idx_length_data, self.extended_source_text_idx_data, self.oovs_list
             )
         )
         random.shuffle(temp)
@@ -158,9 +162,12 @@ class Dataloader:
         source_idx, source_length = self._pad_batch_sequence(tp_source_text_idx_data, tp_source_idx_length_data)
 
         target_text = self.target_text_data[self.pr:self.pr + self.step]
-        tp_target_text_idx_data = self.target_text_idx_data[self.pr:self.pr + self.step]
+        tp_input_target_text_idx_data = self.input_target_text_idx_data[self.pr:self.pr + self.step]
+        tp_output_target_text_idx_data = self.output_target_text_idx_data[self.pr:self.pr + self.step]
+
         tp_target_idx_length_data = self.target_idx_length_data[self.pr:self.pr + self.step]
-        target_idx, target_length = self._pad_batch_sequence(tp_target_text_idx_data, tp_target_idx_length_data)
+        input_target_idx, target_length = self._pad_batch_sequence(tp_input_target_text_idx_data, tp_target_idx_length_data)
+        output_target_idx, _ = self._pad_batch_sequence(tp_output_target_text_idx_data, tp_target_idx_length_data)
 
         tp_extended_source_text_idx_data = self.extended_source_text_idx_data[self.pr:self.pr + self.step]
         extend_source_idx, _ = self._pad_batch_sequence(tp_extended_source_text_idx_data, tp_source_idx_length_data)
@@ -173,7 +180,8 @@ class Dataloader:
             'source_idx': source_idx.to(self.device),
             'source_length': source_length.to(self.device),
             'target_text': target_text,
-            'target_idx': target_idx.to(self.device),
+            'input_target_idx': input_target_idx.to(self.device),
+            'output_target_idx': output_target_idx.to(self.device),
             'target_length': target_length.to(self.device),
             'extended_source_idx': extend_source_idx.to(self.device),
             'extra_zeros': extra_zeros.to(self.device),

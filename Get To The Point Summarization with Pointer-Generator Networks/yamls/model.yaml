@@ -4,7 +4,6 @@ num_enc_layers: 1
 bidirectional: True
 num_dec_layers: 1
 dropout_ratio: 0.2
-attention_type: "LuongAttention"
 alignment_method: "concat"
 beam_size: 4
 decoding_strategy: 'greedy_search'
