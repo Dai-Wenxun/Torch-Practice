@@ -6,9 +6,10 @@ from utils import get_local_time
 
 
 class Config:
-    def __init__(self):
+    def __init__(self, config_dict=None):
         self._load_yamls()
         self._init_device()
+        self.config_dict.update(config_dict)
         self._set_default_parameters()
 
     def _load_yamls(self):

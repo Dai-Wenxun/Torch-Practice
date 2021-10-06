@@ -1,3 +1,4 @@
+import os
 import torch
 import random
 import datetime
@@ -45,6 +46,11 @@ def get_local_time():
     return cur
 
 
+def ensure_dir(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+
 def init_seed(seed, reproducibility):
     random.seed(seed)
     np.random.seed(seed)
@@ -61,3 +67,18 @@ def init_seed(seed, reproducibility):
 
 def greedy_search(vocab_dist):
     return vocab_dist.view(-1).argmax().item()
+
+
+def early_stopping(value, best, cur_step, max_step):
+    stop_flag = False
+    update_flag = False
+
+    if value < best:
+        cur_step = 0
+        best = value
+        update_flag = True
+    else:
+        cur_step += 1
+        if cur_step > max_step:
+            stop_flag = True
+    return best, cur_step, stop_flag, update_flag

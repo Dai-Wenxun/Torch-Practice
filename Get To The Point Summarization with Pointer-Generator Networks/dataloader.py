@@ -70,8 +70,8 @@ class Dataloader:
             if i == unk_id:
                 if w not in oovs:
                     oovs.append(w)
-                    oov_num = oovs.index(w)
-                    ids.append(self.vocab_size + oov_num)
+                oov_num = oovs.index(w)
+                ids.append(self.vocab_size + oov_num)
             else:
                 ids.append(i)
         return ids, oovs
@@ -191,3 +191,24 @@ class Dataloader:
             "oovs_list": tp_oovs_list
         }
         return batch_data
+
+    def get_example(self):
+        idx = 4
+        source_text = self.source_text_data[idx]
+        target_text = self.target_text_data[idx]
+        source_idx = torch.LongTensor(self.source_text_idx_data[idx]).view(1, -1)
+        source_length = torch.LongTensor([self.source_idx_length_data[idx]])
+        extend_source_idx = torch.LongTensor(self.extended_source_text_idx_data[idx]).view(1, -1)
+        tp_oovs_list = self.oovs_list[idx]
+        extra_zeros = self._get_extra_zeros([tp_oovs_list])
+
+        example = {
+            'source_text': source_text,
+            'target_text': target_text,
+            'source_idx': source_idx.to(self.device),
+            'source_length': source_length.to(self.device),
+            'extended_source_idx': extend_source_idx.to(self.device),
+            'extra_zeros': extra_zeros.to(self.device),
+            "oovs_list": tp_oovs_list
+        }
+        return example

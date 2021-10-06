@@ -45,6 +45,57 @@ class Model(nn.Module):
             self.num_dec_layers, self.dropout_ratio, self.alignment_method
         )
 
+    def show_example(self, test_data):
+        example = test_data.get_example()
+
+        result = []
+        oovs = example['oovs_list']
+        source_text = example['source_text']
+        target_text = example['target_text']
+        source_idx = example['source_idx']
+        source_length = example['source_length']
+        encoder_outputs, encoder_hidden_states = self.encode(source_idx, source_length)
+
+        encoder_masks = torch.ne(source_idx, self.padding_token_idx)
+        extra_zeros = example['extra_zeros']
+        extended_source_idx = example['extended_source_idx']
+
+        generated_tokens = []
+
+        input_target_idx = torch.LongTensor([[self.sos_token_idx]]).to(self.device)
+        context = torch.zeros((1, 1, self.context_size)).to(self.device)
+
+        for gen_id in range(len(target_text)):
+            input_embeddings = self.target_token_embedder(input_target_idx)
+
+            vocab_dists, context, decoder_hidden_states, attn_dist, p_gen = self.decoder(
+                input_embeddings, context, encoder_hidden_states, encoder_outputs, encoder_masks,
+                extra_zeros, extended_source_idx
+            )
+
+            token = None
+            if self.strategy == "greedy_search":
+                token_idx = greedy_search(vocab_dists)
+                if token_idx >= self.vocab_size:
+                    token = oovs[token_idx-self.vocab_size]
+                    generated_tokens.append(token)
+                    token_idx = self.unknown_token_idx
+                else:
+                    token = self.idx2token[token_idx]
+                    generated_tokens.append(token)
+                input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
+
+            expected_token = target_text[gen_id]
+            attn_dist = attn_dist.view(-1).tolist()
+            token_attn = {word: round(attn, 4) for word, attn in zip(source_text, attn_dist)}
+            result.append({'expected': expected_token,
+                           'attn': token_attn,
+                           'p_copy': round(1.-p_gen.view(-1).item(), 4)})
+
+        result.append({'generated': generated_tokens})
+
+        return result
+
     def encode(self, source_idx, source_length):
         source_embeddings = self.source_token_embedder(source_idx)
         encoder_outputs, encoder_hidden_states = self.encoder(source_embeddings, source_length)
@@ -74,8 +125,8 @@ class Model(nn.Module):
         for bid in range(source_idx.size(0)):
             generated_tokens = []
 
-            input_target_idx = torch.LongTensor([[self.sos_token_idx]]).to(source_idx.device)
-            context = torch.zeros((1, 1, self.context_size)).to(source_idx.device)
+            input_target_idx = torch.LongTensor([[self.sos_token_idx]]).to(self.device)
+            context = torch.zeros((1, 1, self.context_size)).to(self.device)
             decoder_hidden_states = (encoder_hidden_states[0][:, bid, :].unsqueeze(1),
                                      encoder_hidden_states[1][:, bid, :].unsqueeze(1))
             encoder_output = encoder_outputs[bid, :, :].unsqueeze(0)
@@ -86,7 +137,7 @@ class Model(nn.Module):
             for gen_id in range(self.max_target_length):
                 input_embeddings = self.target_token_embedder(input_target_idx)
 
-                vocab_dists, context, decoder_hidden_states = self.decoder(
+                vocab_dists, context, decoder_hidden_states, _, _ = self.decoder(
                     input_embeddings, context, decoder_hidden_states, encoder_output, encoder_mask,
                     extra_zero, bid_extended_source_idx
                 )
@@ -98,13 +149,13 @@ class Model(nn.Module):
                         token_idx = self.unknown_token_idx
                     else:
                         generated_tokens.append(self.idx2token[token_idx])
-                    input_target_idx = torch.LongTensor([[token_idx]])
+                    input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
 
                 if self.strategy == 'greedy_search':
                     if token_idx == self.eos_token_idx:
                         break
 
-            generated_corpus.append(generated_tokens)
+            generated_corpus.append(generated_tokens[:-1])
 
         return generated_corpus
 
@@ -122,7 +173,7 @@ class Model(nn.Module):
         extra_zeros = corpus['extra_zeros']
         extended_source_idx = corpus['extended_source_idx']
 
-        vocab_dists, _, _ = self.decoder(
+        vocab_dists, _, _, _, _ = self.decoder(
             input_embeddings, context, encoder_hidden_states, encoder_outputs, encoder_masks,
             extra_zeros, extended_source_idx
         )

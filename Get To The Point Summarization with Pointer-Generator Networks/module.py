@@ -66,9 +66,9 @@ class Decoder(nn.Module):
             p_gen_input = torch.cat((context, step_decoder_outputs, x), dim=-1)  # B x 1 x (256 + 256 + 128)
             p_gen = torch.sigmoid(self.p_gen_linear(p_gen_input).squeeze(2))  # B x 1
 
-            extended_vocab_dist = torch.cat(((vocab_dist * p_gen), extra_zeros), dim=1)  # B x (vocab_size+max_oovs_num)
-
             attn_dist = (1 - p_gen) * attn_dist.squeeze(1)  # B x src_len
+
+            extended_vocab_dist = torch.cat(((vocab_dist * p_gen), extra_zeros), dim=1)  # B x (vocab_size+max_oovs_num)
 
             final_vocab_dist = extended_vocab_dist.scatter_add(1, extended_source_idx, attn_dist)
 
@@ -76,7 +76,7 @@ class Decoder(nn.Module):
 
         final_vocab_dists = torch.cat(final_vocab_dists, dim=1)  # B x dec_len x (vocab_size+max_oovs_num)
 
-        return final_vocab_dists, context, decoder_hidden_states
+        return final_vocab_dists, context, decoder_hidden_states, attn_dist, p_gen
 
 
 class LuongAttention(nn.Module):
