@@ -23,33 +23,37 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(
-        self,
-        vocab_size,
-        embedding_size,
-        hidden_size,
-        context_size,
-        num_dec_layers,
-        dropout_ratio=0.0,
-        alignment_method='concat'
-     ):
+            self,
+            vocab_size,
+            embedding_size,
+            hidden_size,
+            context_size,
+            num_dec_layers,
+            dropout_ratio=0.0,
+            alignment_method='concat',
+            is_coverage=True
+    ):
         super(Decoder, self).__init__()
-
+        self.is_coverage = is_coverage
         self.context_size = context_size
 
         self.decoder = nn.LSTM(embedding_size, hidden_size, num_dec_layers,
                                batch_first=True, dropout=dropout_ratio)
 
-        self.attention = LuongAttention(context_size, hidden_size, alignment_method)
+        self.attention = LuongAttention(context_size, hidden_size, alignment_method, is_coverage)
         self.x_context = nn.Linear(embedding_size + context_size, embedding_size)
         self.attention_dense = nn.Linear(hidden_size + context_size, hidden_size)
         self.vocab_linear = nn.Linear(hidden_size, vocab_size)
         self.p_gen_linear = nn.Linear(context_size + hidden_size + embedding_size, 1)
 
     def forward(self, input_embeddings, context, decoder_hidden_states, encoders_outputs, encoder_masks,
-                extra_zeros, extended_source_idx):
+                extra_zeros, extended_source_idx, coverage=None):
         final_vocab_dists = []
+        attn_dists = []
+        coverages = []
         dec_length = input_embeddings.size(1)
 
+        p_gen = None
         for step in range(dec_length):
             step_input_embeddings = input_embeddings[:, step, :].unsqueeze(1)  # B x 1 x 128
 
@@ -57,8 +61,8 @@ class Decoder(nn.Module):
 
             step_decoder_outputs, decoder_hidden_states = self.decoder(x, decoder_hidden_states)  # B x 1 x 256
 
-            context, attn_dist = self.attention(step_decoder_outputs, encoders_outputs,
-                                                encoder_masks)  # B x 1 x src_len
+            context, attn_dist, coverage = self.attention(step_decoder_outputs, encoders_outputs,
+                                                          encoder_masks, coverage)  # B x 1 x src_len
 
             vocab_dist = self.vocab_linear(self.attention_dense(torch.cat((step_decoder_outputs, context), dim=-1)))
             vocab_dist = F.softmax(vocab_dist.squeeze(1), dim=-1)  # B x vocab_size
@@ -66,25 +70,34 @@ class Decoder(nn.Module):
             p_gen_input = torch.cat((context, step_decoder_outputs, x), dim=-1)  # B x 1 x (256 + 256 + 128)
             p_gen = torch.sigmoid(self.p_gen_linear(p_gen_input).squeeze(2))  # B x 1
 
-            attn_dist = (1 - p_gen) * attn_dist.squeeze(1)  # B x src_len
+            attn_dist_ = (1 - p_gen) * attn_dist.squeeze(1)  # B x src_len
 
             extended_vocab_dist = torch.cat(((vocab_dist * p_gen), extra_zeros), dim=1)  # B x (vocab_size+max_oovs_num)
 
-            final_vocab_dist = extended_vocab_dist.scatter_add(1, extended_source_idx, attn_dist)
+            final_vocab_dist = extended_vocab_dist.scatter_add(1, extended_source_idx, attn_dist_)
 
             final_vocab_dists.append(final_vocab_dist.unsqueeze(1))
+            attn_dists.append(attn_dist)
+            coverages.append(coverage)
 
         final_vocab_dists = torch.cat(final_vocab_dists, dim=1)  # B x dec_len x (vocab_size+max_oovs_num)
+        attn_dists = torch.cat(attn_dists, dim=1)  # B x dec_len x src_len
+        if self.is_coverage:
+            coverages = torch.cat(coverages, dim=1)  # B x dec_len x src_len
 
-        return final_vocab_dists, context, decoder_hidden_states, attn_dist, p_gen
+        return final_vocab_dists, context, decoder_hidden_states, attn_dists, p_gen, coverages
 
 
 class LuongAttention(nn.Module):
-    def __init__(self, source_size, target_size, alignment_method='concat'):
+    def __init__(self, source_size, target_size, alignment_method='concat', is_coverage=True):
         super(LuongAttention, self).__init__()
         self.source_size = source_size
         self.target_size = target_size
         self.alignment_method = alignment_method
+        self.is_coverage = is_coverage
+
+        if self.is_coverage:
+            self.coverage_linear = nn.Linear(1, target_size, bias=False)
 
         if self.alignment_method == 'general':
             self.energy_linear = nn.Linear(target_size, source_size, bias=False)
@@ -97,9 +110,12 @@ class LuongAttention(nn.Module):
             raise ValueError(
                 "The alignment method for Luong Attention must be in ['general', 'concat', 'dot'].")
 
-    def score(self, decoder_hidden_states, encoder_outputs):
+    def score(self, decoder_hidden_states, encoder_outputs, coverage):
         tgt_len = decoder_hidden_states.size(1)
         src_len = encoder_outputs.size(1)
+
+        if self.is_coverage:
+            coverage = self.coverage_linear(coverage.unsqueeze(3))
 
         if self.alignment_method == 'general':
             energy = self.energy_linear(decoder_hidden_states)
@@ -110,7 +126,10 @@ class LuongAttention(nn.Module):
             # B * tgt_len * src_len * target_size
             decoder_hidden_states = decoder_hidden_states.unsqueeze(2).repeat(1, 1, src_len, 1)
             encoder_outputs = encoder_outputs.unsqueeze(1).repeat(1, tgt_len, 1, 1)
-            energy = torch.tanh(self.energy_linear(torch.cat((decoder_hidden_states, encoder_outputs), dim=-1)))
+            energy = self.energy_linear(torch.cat((decoder_hidden_states, encoder_outputs), dim=-1))
+            if self.is_coverage:
+                energy = energy + coverage
+            energy = torch.tanh(energy)
             energy = self.v.mul(energy).sum(dim=-1)
             return energy
         elif self.alignment_method == 'dot':
@@ -122,11 +141,15 @@ class LuongAttention(nn.Module):
                 "No such alignment method {} for computing Luong scores.".format(self.alignment_method)
             )
 
-    def forward(self, decoder_hidden_states, encoder_outputs, encoder_masks):
+    def forward(self, decoder_hidden_states, encoder_outputs, encoder_masks, coverage=None):
         tgt_len = decoder_hidden_states.size(1)
-        energy = self.score(decoder_hidden_states, encoder_outputs)
+        energy = self.score(decoder_hidden_states, encoder_outputs, coverage)
         probs = F.softmax(energy, dim=-1) * encoder_masks.unsqueeze(1).repeat(1, tgt_len, 1)
         normalization_factor = probs.sum(-1, keepdim=True) + 1e-12
         probs = probs / normalization_factor
         context = probs.bmm(encoder_outputs)
-        return context, probs
+
+        if self.is_coverage:
+            coverage = probs + coverage
+
+        return context, probs, coverage

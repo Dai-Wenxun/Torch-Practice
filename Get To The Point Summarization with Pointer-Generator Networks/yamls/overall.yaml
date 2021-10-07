@@ -9,7 +9,7 @@ checkpoint_dir: 'saved/'
 generated_text_dir: 'generated/'
 
 # training settings
-epochs: 25
+epochs: 50
 train_batch_size: 2
 learner: adam
 learning_rate: 0.001

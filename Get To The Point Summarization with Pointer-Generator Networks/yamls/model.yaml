@@ -7,3 +7,5 @@ dropout_ratio: 0.2
 alignment_method: "concat"
 beam_size: 4
 decoding_strategy: 'greedy_search'
+is_coverage: False
+cov_loss_lambda: 1.0

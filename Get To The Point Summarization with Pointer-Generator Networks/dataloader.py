@@ -193,7 +193,7 @@ class Dataloader:
         return batch_data
 
     def get_example(self):
-        idx = 4
+        idx = 0
         source_text = self.source_text_data[idx]
         target_text = self.target_text_data[idx]
         source_idx = torch.LongTensor(self.source_text_idx_data[idx]).view(1, -1)
