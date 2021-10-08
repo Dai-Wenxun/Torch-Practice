@@ -13,26 +13,27 @@ def data_preparation(config):
     train_dataset, valid_dataset, test_dataset = dataset.build()
 
     train_data = Dataloader(
+        name='train',
         config=config,
         dataset=train_dataset,
         batch_size=config['train_batch_size'],
-        shuffle=False,
-        drop_last=False
+        shuffle=True
     )
 
     valid_data = Dataloader(
+        name='dev',
         config=config,
         dataset=valid_dataset,
         batch_size=config['train_batch_size'],
-        shuffle=False,
+        shuffle=True,
         drop_last=False
     )
 
     test_data = Dataloader(
+        name='test',
         config=config,
         dataset=test_dataset,
         batch_size=config['eval_batch_size'],
-        shuffle=False,
         drop_last=False
     )
 

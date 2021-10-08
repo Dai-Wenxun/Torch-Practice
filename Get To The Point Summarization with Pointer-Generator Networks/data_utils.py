@@ -13,20 +13,12 @@ def load_data(dataset_path, max_seq_length):
     return text
 
 
-def check(word):
-    if word in ['nostalgia', 'great', 'affectionate', 'sweet', 'cherish']:
-        return False
-    else:
-        return True
-
-
 def build_vocab(text_data_list, max_vocab_size, special_tokens):
     word_list = list()
     for text_data in text_data_list:
         for text in text_data:
             for word in text:
-                if check(word):
-                    word_list.append(word)
+                word_list.append(word)
 
     token_count = [(count, token) for token, count in collections.Counter(word_list).items()]
     token_count.sort(reverse=True)

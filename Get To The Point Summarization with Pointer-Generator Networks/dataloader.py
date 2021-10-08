@@ -1,10 +1,17 @@
+import math
+import os
 import torch
+import pickle
 import random
+from logging import getLogger
+
 from enum_type import SpecialTokens
 
 
 class Dataloader:
-    def __init__(self, config, dataset, batch_size, shuffle=False, drop_last=True):
+    def __init__(self, name, config, dataset, batch_size, shuffle=False, drop_last=True):
+        self.logger = getLogger()
+        self.name = name
         self.config = config
         self.padding_token = SpecialTokens.PAD
         self.unknown_token = SpecialTokens.UNK
@@ -22,14 +29,24 @@ class Dataloader:
         self.pr = 0
         self.std_pr = 0
 
+        self.data_path = config['data_path']
+        self.processed_file = os.path.join(self.data_path, '{}.processed.bin'.format(self.name))
         self.vocab_size = dataset['vocab_size']
         self.max_source_length = dataset['max_source_length']
         self.max_target_length = dataset['max_target_length']
 
         self._get_preset()
-        self._data_process()
+        if self._detect_processed():
+            self._load_processed()
+        else:
+            self._data_process()
+            self._dump_data()
 
     def _get_preset(self):
+        required_key_list = ['source_text_data', 'target_text_data', 'idx2token', 'token2idx']
+        for dataset_attr in required_key_list:
+            assert dataset_attr in self.dataset
+            setattr(self, dataset_attr, self.dataset[dataset_attr])
         self.source_text_idx_data = []
         self.input_target_text_idx_data = []
         self.output_target_text_idx_data = []
@@ -38,12 +55,19 @@ class Dataloader:
         self.extended_source_text_idx_data = []
         self.oovs_list = []
 
-    def _data_process(self):
-        required_key_list = ['source_text_data', 'target_text_data', 'idx2token', 'token2idx']
-        for dataset_attr in required_key_list:
-            assert dataset_attr in self.dataset
-            setattr(self, dataset_attr, self.dataset[dataset_attr])
+    def _detect_processed(self):
+        return os.path.isfile(self.processed_file)
 
+    def _load_processed(self):
+        self.logger.info(f"Loading {self.name} data from processed")
+        with open(self.processed_file, 'rb') as f:
+            self.source_text_idx_data, self.input_target_text_idx_data, self.output_target_text_idx_data, \
+            self.source_idx_length_data, self.target_idx_length_data, self.extended_source_text_idx_data, \
+            self.oovs_list = pickle.load(f)
+        self.logger.info(f"Processed {self.name} data Loaded")
+
+    def _data_process(self):
+        self.logger.info(f'Processing {self.name} data from scratch')
         for source_text, target_text in zip(self.source_text_data, self.target_text_data):
             source_text_idx = [self.token2idx.get(w, self.unknown_token_idx) for w in source_text]
             extended_source_text_idx, oovs = self._article2ids(source_text)
@@ -60,6 +84,16 @@ class Dataloader:
             self.target_idx_length_data.append(len(input_target_text_idx))
             self.extended_source_text_idx_data.append(extended_source_text_idx)
             self.oovs_list.append(oovs)
+
+        self.logger.info(f'Process {self.name} data finished')
+
+    def _dump_data(self):
+        self.logger.info(f"Dumping processed {self.name} data")
+        with open(self.processed_file, "wb") as f:
+            pickle.dump([self.source_text_idx_data, self.input_target_text_idx_data, self.output_target_text_idx_data,
+                         self.source_idx_length_data, self.target_idx_length_data, self.extended_source_text_idx_data,
+                         self.oovs_list], f)
+        self.logger.info(f"Dump {self.name} data finished")
 
     def _article2ids(self, article_words):
         ids = []
@@ -90,6 +124,13 @@ class Dataloader:
             else:
                 ids.append(i)
         return ids
+
+    def get_reference(self):
+        return self.target_text_data
+
+    def __len__(self):
+        return math.floor(self.pr_end / self.batch_size) if self.drop_last \
+            else math.ceil(self.pr_end / self.batch_size)
 
     @property
     def padding_token_idx(self):
@@ -125,9 +166,6 @@ class Dataloader:
         extra_zeros = torch.zeros(len(oovs_list), max_oovs_num)
         return extra_zeros
 
-    def __len__(self):
-        return len(self.source_text_idx_data)
-
     def __iter__(self):
         if self.shuffle:
             self._shuffle()
@@ -143,12 +181,12 @@ class Dataloader:
         )
         random.shuffle(temp)
         self.source_text_data[:], self.source_text_idx_data[:], self.source_idx_length_data[:], \
-        self.target_text_data[:], self.target_text_idx_data[:], self.target_idx_length_data[:], \
-        self.extended_source_text_idx_data[:], self.oovs_list[:] = zip(*temp)
+        self.target_text_data[:], self.input_target_text_idx_data[:], self.output_target_text_idx_data[:], \
+        self.target_idx_length_data[:], self.extended_source_text_idx_data[:], self.oovs_list[:] = zip(*temp)
 
     def __next__(self):
         if (self.drop_last and self.std_pr + self.batch_size >= self.pr_end) or \
-            (not self.drop_last and self.pr >= self.pr_end):
+                (not self.drop_last and self.pr >= self.pr_end):
             self.pr = 0
             self.std_pr = 0
             raise StopIteration()
@@ -169,7 +207,8 @@ class Dataloader:
         tp_output_target_text_idx_data = self.output_target_text_idx_data[self.pr:self.pr + self.step]
 
         tp_target_idx_length_data = self.target_idx_length_data[self.pr:self.pr + self.step]
-        input_target_idx, target_length = self._pad_batch_sequence(tp_input_target_text_idx_data, tp_target_idx_length_data)
+        input_target_idx, target_length = self._pad_batch_sequence(tp_input_target_text_idx_data,
+                                                                   tp_target_idx_length_data)
         output_target_idx, _ = self._pad_batch_sequence(tp_output_target_text_idx_data, tp_target_idx_length_data)
 
         tp_extended_source_text_idx_data = self.extended_source_text_idx_data[self.pr:self.pr + self.step]

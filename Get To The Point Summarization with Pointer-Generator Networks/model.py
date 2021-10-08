@@ -155,18 +155,19 @@ class Model(nn.Module):
 
                 if self.strategy == "greedy_search":
                     token_idx = greedy_search(vocab_dists)
-                    if token_idx >= self.vocab_size:
-                        generated_tokens.append(oovs[bid][token_idx-self.vocab_size])
-                        token_idx = self.unknown_token_idx
-                    else:
-                        generated_tokens.append(self.idx2token[token_idx])
-                    input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
 
                 if self.strategy == 'greedy_search':
                     if token_idx == self.eos_token_idx:
                         break
+                    else:
+                        if token_idx >= self.vocab_size:
+                            generated_tokens.append(oovs[bid][token_idx - self.vocab_size])
+                            token_idx = self.unknown_token_idx
+                        else:
+                            generated_tokens.append(self.idx2token[token_idx])
+                        input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
 
-            generated_corpus.append(generated_tokens[:-1])
+            generated_corpus.append(generated_tokens)
 
         return generated_corpus
 

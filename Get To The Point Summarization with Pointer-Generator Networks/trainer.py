@@ -4,6 +4,8 @@ import torch.nn.utils
 import torch.optim as optim
 
 from time import time
+from tqdm import tqdm
+from logging import getLogger
 from utils import early_stopping, ensure_dir
 
 
@@ -11,8 +13,10 @@ class Trainer:
     def __init__(self, config, model):
         self.config = config
         self.model = model
+        self.logger = getLogger()
 
         # training settings
+        self.DDP = config['DDP']
         self.epochs = config['epochs']
         self.learner = config['learner'].lower()
         self.learning_rate = config['learning_rate']
@@ -36,6 +40,10 @@ class Trainer:
         saved_text_file = self.config['filename'] + '.txt'
         self.saved_text_file = os.path.join(self.generated_text_dir, saved_text_file)
 
+        self.metrics = config['metrics']
+
+        self.is_logger = not self.DDP
+
         self.example_list = []
 
     def _build_optimizer(self):
@@ -46,7 +54,11 @@ class Trainer:
         self.model.train()
         total_loss = 0.
 
-        for data in train_data:
+        pbar = train_data
+        if self.is_logger:
+            pbar = tqdm(pbar)
+
+        for data in pbar:
             self.optimizer.zero_grad()
             loss = self.model(data)
             total_loss += loss.item()
@@ -89,9 +101,16 @@ class Trainer:
         self.best_valid_score = checkpoint['best_valid_score']
         self.model.load_state_dict(checkpoint['state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
-        print('Checkpoint loaded. Resume training from epoch {}'.format(self.start_epoch))
 
-    def fit(self, train_data, valid_data, test_data):
+        if self.is_logger:
+            self.logger.info('Checkpoint loaded. Resume training from epoch {}'.format(self.start_epoch))
+
+    def _save_generated_text(self, generated_corpus):
+        with open(self.saved_text_file, 'w') as fin:
+            for tokens in generated_corpus:
+                fin.write(' '.join(tokens) + '\n')
+
+    def fit(self, train_data, valid_data, test_data, saved=True):
         if self.start_epoch >= self.epochs or self.epochs <= 0:
             self._save_checkpoint(-1)
 
@@ -107,7 +126,8 @@ class Trainer:
 
             train_loss_output = "epoch %d training [time: %.2fs, train_loss: %.4f]" % \
                                 (epoch_idx, training_start_time - training_end_time, train_loss)
-            print(train_loss_output)
+            if self.is_logger:
+                self.logger.info(train_loss_output)
 
             if (epoch_idx + 1) % self.eval_step == 0:
                 valid_start_time = time()
@@ -120,21 +140,27 @@ class Trainer:
                 valid_score_output = "epoch %d evaluating [time: %.2fs, valid_loss: %f]" % \
                                      (epoch_idx, valid_end_time - valid_start_time, valid_score)
                 valid_result_output = 'valid ppl: {}'.format(valid_result)
-                print(valid_score_output)
-                print(valid_result_output)
+                if self.is_logger:
+                    self.logger.info(valid_score_output)
+                    self.logger.info(valid_result_output)
 
                 if update_flag:
-                    self._save_checkpoint(epoch_idx)
+                    if saved:
+                        self._save_checkpoint(epoch_idx)
+                        update_output = 'Saving current best: %s' % self.saved_model_file
+                        if self.is_logger:
+                            self.logger.info(update_output)
                     self.best_valid_result = valid_result
-                    print('Saving current best: %s' % self.saved_model_file)
                 if stop_flag:
-                    print('Finished training, best eval result in epoch %d' %
-                          (epoch_idx - self.cur_step * self.eval_step))
+                    stop_output = ('Finished training, best eval result in epoch %d' %
+                                   (epoch_idx - self.cur_step * self.eval_step))
+                    if self.is_logger:
+                        self.logger.info(stop_output)
 
         return self.best_valid_score, self.best_valid_result
 
     @torch.no_grad()
-    def evaluate(self, eval_data, load_best_model=True, model_file=None, eval=False):
+    def evaluate(self, eval_data, load_best_model=True, model_file=None, eval=True):
         if load_best_model:
             if model_file:
                 checkpoint_file = model_file
@@ -142,7 +168,9 @@ class Trainer:
                 checkpoint_file = self.saved_model_file
             checkpoint = torch.load(checkpoint_file)
             self.model.load_state_dict(checkpoint['state_dict'])
-            print('Loading model structure and parameters from {}'.format(checkpoint_file))
+            message_output = 'Loading model structure and parameters from {}'.format(checkpoint_file)
+            if self.is_logger:
+                self.logger.info(message_output)
 
         self.model.eval()
 
@@ -150,3 +178,14 @@ class Trainer:
             generate_sentence = self.model.generate(next(eval_data))
             print(' '.join(generate_sentence[0]))
             return
+
+        generated_corpus = []
+        with torch.no_grad():
+            for data in tqdm(eval_data):
+                generated = self.model.generate(data)
+                generated_corpus.extend(generated)
+        self._save_generated_text(generated_corpus)
+        # reference_corpus = eval_data.get_reference()
+        # result = self.evaluator.evaluate(generated_corpus, reference_corpus)
+
+        return None

@@ -32,8 +32,6 @@ class Config:
             self.config_dict['device'] = torch.device('cpu')
 
     def _set_default_parameters(self):
-        current_path = os.path.dirname(__file__)
-        self.config_dict['data_path'] = os.path.join(current_path, 'data/')
         self.config_dict['filename'] = 'Fire-At-{}'.format(get_local_time())
 
     def __getitem__(self, item):
@@ -42,4 +40,12 @@ class Config:
         else:
             return None
 
+    def __str__(self):
+        args_info = '\n\nHyper Parameters:\n'
+        for key, value in self.config_dict.items():
+            args_info += '{}={}\n'.format(key, value)
+        args_info += '\n'
+        return args_info
 
+    def __repr__(self):
+        return self.__str__()
