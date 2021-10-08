@@ -1,5 +1,5 @@
 max_vocab_size: 50000
 max_source_length: 400
-max_target_length: 5
+max_target_length: 100
 source_suffix: source
 target_suffix: target
