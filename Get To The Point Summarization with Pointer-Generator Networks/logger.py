@@ -17,7 +17,7 @@ def init_logger(config):
     fileformatter = logging.Formatter(filefmt, filedatefmt)
 
     sfmt = "%(asctime)-15s %(levelname)s %(message)s"
-    sdatefmt = "%d %b %H:%M"
+    sdatefmt = "%d %b %H:%M:%S"
     sformatter = logging.Formatter(sfmt, sdatefmt)
     if config['state'] is None or config['state'].lower() == 'info':
         level = logging.INFO

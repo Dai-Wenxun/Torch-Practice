@@ -125,7 +125,7 @@ class Trainer:
             training_end_time = time()
 
             train_loss_output = "epoch %d training [time: %.2fs, train_loss: %.4f]" % \
-                                (epoch_idx, training_start_time - training_end_time, train_loss)
+                                (epoch_idx, training_end_time - training_start_time, train_loss)
             if self.is_logger:
                 self.logger.info(train_loss_output)
 

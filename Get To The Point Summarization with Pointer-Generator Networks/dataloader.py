@@ -28,6 +28,8 @@ class Dataloader:
         self.step = batch_size
         self.pr = 0
         self.std_pr = 0
+        if self.name == 'train':
+            self.iters_per_epoch = config['iters_per_epoch']
 
         self.data_path = config['data_path']
         self.processed_file = os.path.join(self.data_path, '{}.processed.bin'.format(self.name))
@@ -129,8 +131,11 @@ class Dataloader:
         return self.target_text_data
 
     def __len__(self):
-        return math.floor(self.pr_end / self.batch_size) if self.drop_last \
-            else math.ceil(self.pr_end / self.batch_size)
+        if self.name == 'train':
+            return self.iters_per_epoch
+        else:
+            return math.floor(self.pr_end / self.batch_size) if self.drop_last \
+                else math.ceil(self.pr_end / self.batch_size)
 
     @property
     def padding_token_idx(self):
@@ -190,6 +195,12 @@ class Dataloader:
             self.pr = 0
             self.std_pr = 0
             raise StopIteration()
+
+        if self.name == 'train':
+            if self.std_pr == self.iters_per_epoch * self.batch_size:  # 1600
+                self.pr = 0
+                self.std_pr = 0
+                raise StopIteration()
 
         next_batch = self._next_batch_data()
         self.pr += self.batch_size
