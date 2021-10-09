@@ -7,7 +7,7 @@ from time import time
 from tqdm import tqdm
 from logging import getLogger
 from utils import early_stopping, ensure_dir
-
+from optim import ScheduledOptimizer
 
 class Trainer:
     def __init__(self, config, model):
@@ -47,6 +47,8 @@ class Trainer:
     def _build_optimizer(self):
         if self.learner == 'adam':
             return optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        elif self.learner == 'schedule':
+            return ScheduledOptimizer(optim.Adam(self.model.parameters(), lr=self.learning_rate), self.config)
 
     def _train_epoch(self, train_data):
         self.model.train()
