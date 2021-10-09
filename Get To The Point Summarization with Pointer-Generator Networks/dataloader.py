@@ -36,13 +36,15 @@ class Dataloader:
         self.vocab_size = dataset['vocab_size']
         self.max_source_length = dataset['max_source_length']
         self.max_target_length = dataset['max_target_length']
+        self.interface_only = config['interface_only']
 
         self._get_preset()
-        if self._detect_processed():
-            self._load_processed()
-        else:
-            self._data_process()
-            self._dump_data()
+        if not self.interface_only:
+            if self._detect_processed():
+                self._load_processed()
+            else:
+                self._data_process()
+                self._dump_data()
 
     def _get_preset(self):
         required_key_list = ['source_text_data', 'target_text_data', 'idx2token', 'token2idx']
@@ -242,23 +244,24 @@ class Dataloader:
         }
         return batch_data
 
-    def get_example(self):
-        idx = 0
-        source_text = self.source_text_data[idx]
-        target_text = self.target_text_data[idx]
-        source_idx = torch.LongTensor(self.source_text_idx_data[idx]).view(1, -1)
-        source_length = torch.LongTensor([self.source_idx_length_data[idx]])
-        extend_source_idx = torch.LongTensor(self.extended_source_text_idx_data[idx]).view(1, -1)
-        tp_oovs_list = self.oovs_list[idx]
-        extra_zeros = self._get_extra_zeros([tp_oovs_list])
+    def get_example(self, sentence):
+
+        source_text = sentence.strip().lower().split()
+
+        source_idx_ = [self.token2idx.get(w, self.unknown_token_idx) for w in source_text]
+        source_idx = torch.LongTensor([source_idx_])
+        source_length = torch.LongTensor([len(source_idx_)])
+
+        extended_source_idx_, oovs = self._article2ids(source_text)
+        extend_source_idx = torch.LongTensor([extended_source_idx_])
+        oovs_list = [oovs]
+        extra_zeros = self._get_extra_zeros(oovs_list)
 
         example = {
-            'source_text': source_text,
-            'target_text': target_text,
-            'source_idx': source_idx.to(self.device),
-            'source_length': source_length.to(self.device),
-            'extended_source_idx': extend_source_idx.to(self.device),
-            'extra_zeros': extra_zeros.to(self.device),
-            "oovs_list": tp_oovs_list
+            'source_idx': source_idx.to(self.device),  # 1 x src_len
+            'source_length': source_length.to(self.device),  # 1
+            'extended_source_idx': extend_source_idx.to(self.device),  # 1 x src_len
+            'extra_zeros': extra_zeros.to(self.device),  # 1 x max_oovs_num
+            "oovs_list": oovs_list
         }
         return example

@@ -12,6 +12,17 @@ def data_preparation(config):
     dataset = Dataset(config)
     train_dataset, valid_dataset, test_dataset = dataset.build()
 
+    test_data = Dataloader(
+        name='test',
+        config=config,
+        dataset=test_dataset,
+        batch_size=config['eval_batch_size'],
+        drop_last=False
+    )
+
+    if config['interface_only']:
+        return test_data
+
     train_data = Dataloader(
         name='train',
         config=config,
@@ -26,14 +37,6 @@ def data_preparation(config):
         dataset=valid_dataset,
         batch_size=config['train_batch_size'],
         shuffle=True,
-        drop_last=False
-    )
-
-    test_data = Dataloader(
-        name='test',
-        config=config,
-        dataset=test_dataset,
-        batch_size=config['eval_batch_size'],
         drop_last=False
     )
 

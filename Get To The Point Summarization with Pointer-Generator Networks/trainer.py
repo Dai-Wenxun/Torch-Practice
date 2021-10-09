@@ -44,8 +44,6 @@ class Trainer:
 
         self.is_logger = not self.DDP
 
-        self.example_list = []
-
     def _build_optimizer(self):
         if self.learner == 'adam':
             return optim.Adam(self.model.parameters(), lr=self.learning_rate)
@@ -110,16 +108,11 @@ class Trainer:
             for tokens in generated_corpus:
                 fin.write(' '.join(tokens) + '\n')
 
-    def fit(self, train_data, valid_data, test_data, saved=True):
+    def fit(self, train_data, valid_data, saved=True):
         if self.start_epoch >= self.epochs or self.epochs <= 0:
             self._save_checkpoint(-1)
 
         for epoch_idx in range(self.start_epoch, self.epochs):
-            if test_data is not None:
-                with torch.no_grad():
-                    self.model.eval()
-                    self.example_list.append(self.model.show_example(test_data))
-
             training_start_time = time()
             train_loss = self._train_epoch(train_data)
             training_end_time = time()
@@ -160,22 +153,21 @@ class Trainer:
         return self.best_valid_score, self.best_valid_result
 
     @torch.no_grad()
-    def evaluate(self, eval_data, load_best_model=True, model_file=None, eval=True):
-        if load_best_model:
-            if model_file:
-                checkpoint_file = model_file
-            else:
-                checkpoint_file = self.saved_model_file
-            checkpoint = torch.load(checkpoint_file)
-            self.model.load_state_dict(checkpoint['state_dict'])
-            message_output = 'Loading model structure and parameters from {}'.format(checkpoint_file)
-            if self.is_logger:
-                self.logger.info(message_output)
+    def evaluate(self, eval_data, model_file=None, eval=True, test_sentence=None):
+        if model_file:
+            checkpoint_file = model_file
+        else:
+            checkpoint_file = self.saved_model_file
+        checkpoint = torch.load(checkpoint_file)
+        self.model.load_state_dict(checkpoint['state_dict'])
+        message_output = 'Loading model structure and parameters from {}'.format(checkpoint_file)
+        if self.is_logger:
+            self.logger.info(message_output)
 
         self.model.eval()
 
         if not eval:
-            generate_sentence = self.model.generate(next(eval_data))
+            generate_sentence = self.model.generate(eval_data.get_example(test_sentence))
             print(' '.join(generate_sentence[0]))
             return
 
