@@ -3,7 +3,6 @@ import tempfile
 import logging
 from files2rouge import settings, utils
 from pyrouge import Rouge155
-from collections import defaultdict
 
 
 class Evaluator:
@@ -70,13 +69,13 @@ class Evaluator:
         generated_corpus = [" ".join(generated_sentence) for generated_sentence in generated_corpus]
         reference_corpus = [" ".join(reference_sentence) for reference_sentence in reference_corpus]
         with tempfile.TemporaryDirectory() as path:
-            generate_path = os.path.join(path, 'generate_corpus.txt')
+            generated_path = os.path.join(path, 'generated_corpus.txt')
             reference_path = os.path.join(path, 'reference_corpus.txt')
-            self._write_file(generate_path, generated_corpus)
+            self._write_file(generated_path, generated_corpus)
             self._write_file(reference_path, reference_corpus)
 
             calc_args = {
-                'summ_path': generate_path,
+                'summ_path': generated_path,
                 'ref_path': reference_path,
                 'eos': '.',
                 'ignore_empty_reference': False,
