@@ -8,6 +8,8 @@ from tqdm import tqdm
 from logging import getLogger
 from utils import early_stopping, ensure_dir
 from optim import ScheduledOptimizer
+from evaluator import Evaluator
+
 
 class Trainer:
     def __init__(self, config, model):
@@ -40,7 +42,7 @@ class Trainer:
         saved_text_file = self.config['filename'] + '.txt'
         self.saved_text_file = os.path.join(self.generated_text_dir, saved_text_file)
 
-        self.metrics = config['metrics']
+        self.evaluator = Evaluator()
 
         self.is_logger = not self.DDP
 
@@ -179,7 +181,7 @@ class Trainer:
                 generated = self.model.generate(data)
                 generated_corpus.extend(generated)
         self._save_generated_text(generated_corpus)
-        # reference_corpus = eval_data.get_reference()
-        # result = self.evaluator.evaluate(generated_corpus, reference_corpus)
+        reference_corpus = eval_data.get_reference()
+        result = self.evaluator.evaluate(generated_corpus, reference_corpus)
 
-        return None
+        return result
