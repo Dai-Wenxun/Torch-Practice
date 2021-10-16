@@ -1,7 +1,7 @@
 import os
 import torch
 from logging import getLogger
-from data_utils import load_data, build_vocab, load_restored
+from data_utils import load_data, build_vocab, load_restored, text2idx
 from enum_type import SpecialTokens
 
 
@@ -44,6 +44,7 @@ class Dataset:
     def _from_scratch(self):
         self._load_data()
         self._build_vocab()
+        self._text2idx()
         self._build_data()
         self._dump_data()
 
@@ -67,6 +68,14 @@ class Dataset:
             text_data, self.max_vocab_size, self.special_token_list
         )
         self.logger.info('Build finished')
+
+    def _text2idx(self):
+        for i, prefix in enumerate(['train', 'valid', 'test']):
+            data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.pointer_gen)
+            for key, value in data_dict:
+
+            getattr(self, f'{prefix}_data')
+
 
     def _build_data(self):
         for key, value in self.__dict__.items():

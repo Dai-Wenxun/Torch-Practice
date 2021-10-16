@@ -70,26 +70,7 @@ class Dataloader:
             self.oovs_list = pickle.load(f)
         self.logger.info(f"Processed {self.name} data Loaded")
 
-    def _data_process(self):
-        self.logger.info(f'Processing {self.name} data from scratch')
-        for source_text, target_text in zip(self.source_text_data, self.target_text_data):
-            source_text_idx = [self.token2idx.get(w, self.unknown_token_idx) for w in source_text]
-            extended_source_text_idx, oovs = self._article2ids(source_text)
 
-            input_target_text_idx = [self.sos_token_idx] + [self.token2idx.get(w, self.unknown_token_idx)
-                                                            for w in target_text]
-
-            output_target_text_idx = self._abstract2ids(target_text, oovs) + [self.eos_token_idx]
-
-            self.source_text_idx_data.append(source_text_idx)
-            self.input_target_text_idx_data.append(input_target_text_idx)
-            self.output_target_text_idx_data.append(output_target_text_idx)
-            self.source_idx_length_data.append(len(source_text_idx))
-            self.target_idx_length_data.append(len(input_target_text_idx))
-            self.extended_source_text_idx_data.append(extended_source_text_idx)
-            self.oovs_list.append(oovs)
-
-        self.logger.info(f'Process {self.name} data finished')
 
     def _dump_data(self):
         self.logger.info(f"Dumping processed {self.name} data")

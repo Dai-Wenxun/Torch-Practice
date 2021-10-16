@@ -2,6 +2,7 @@ import os
 import collections
 import pickle
 
+from enum_type import SpecialTokens
 
 def load_data(dataset_path, max_length):
     with open(dataset_path, "r", encoding='utf-8') as fin:
@@ -66,32 +67,67 @@ def load_restored(data_path, source_suffix="", target_suffix=""):
 
     return source_text_data, target_text_data, idx2token, token2idx
 
-def _article2ids(self, article_words):
+
+def text2idx(source_text, target_text, token2idx, pointer_gen=False):
+    data_dict = {'source_idx': [], 'source_length': [],
+                 'input_target_idx': [], 'output_target_idx': [], 'target_length': []}
+
+    if pointer_gen:
+        data_dict['extended_source_idx'] = []
+        data_dict['oovs_list'] = []
+
+    sos_idx = token2idx[SpecialTokens.SOS]
+    eos_idx = token2idx[SpecialTokens.EOS]
+    unknown_idx = token2idx[SpecialTokens.UNK]
+
+    for source_sent, target_sent in zip(source_text, target_text):
+        source_idx = [token2idx.get(word, unknown_idx) for word in source_sent]
+        input_target_idx = [sos_idx] + [token2idx.get(word, unknown_idx) for word in target_sent]
+
+        if pointer_gen:
+            extended_source_idx, oovs = article2ids(source_sent, token2idx, unknown_idx)
+            output_target_idx = abstract2ids(target_sent, oovs, token2idx, unknown_idx) + [eos_idx]
+        else:
+            output_target_idx = [token2idx.get(word, unknown_idx) for word in target_sent] + [eos_idx]
+
+        data_dict['source_idx'].append(source_idx)
+        data_dict['source_length'].append(len(source_idx))
+        data_dict['input_target_idx'].append(input_target_idx)
+        data_dict['output_target_idx'].append(output_target_idx)
+        data_dict['target_length'].append(len(input_target_idx))
+
+        if pointer_gen:
+            data_dict['extended_source_idx'].append(extended_source_idx)
+            data_dict['oovs_list'].append(oovs)
+
+    return data_dict
+
+
+def article2ids(article_words, token2idx, unknown_idx):
     ids = []
     oovs = []
-    unk_id = self.unknown_token_idx
     for w in article_words:
-        i = self.token2idx.get(w, unk_id)
-        if i == unk_id:
+        i = token2idx.get(w, unknown_idx)
+        if i == unknown_idx:
             if w not in oovs:
                 oovs.append(w)
             oov_num = oovs.index(w)
-            ids.append(self.vocab_size + oov_num)
+            ids.append(len(token2idx) + oov_num)
         else:
             ids.append(i)
     return ids, oovs
 
-def _abstract2ids(self, abstract_words, article_oovs):
+
+def abstract2ids(abstract_words, article_oovs, token2idx, unknown_idx):
     ids = []
-    unk_id = self.unknown_token_idx
     for w in abstract_words:
-        i = self.token2idx.get(w, unk_id)
-        if i == unk_id:
+        i = token2idx.get(w, unknown_idx)
+        if i == unknown_idx:
             if w in article_oovs:
-                vocab_idx = self.vocab_size + article_oovs.index(w)
+                vocab_idx = len(token2idx) + article_oovs.index(w)
                 ids.append(vocab_idx)
             else:
-                ids.append(unk_id)
+                ids.append(unknown_idx)
         else:
             ids.append(i)
     return ids
