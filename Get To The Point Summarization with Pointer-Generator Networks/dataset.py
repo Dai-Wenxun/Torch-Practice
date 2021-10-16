@@ -1,7 +1,7 @@
 import os
 import torch
 from logging import getLogger
-from data_utils import load_data, build_vocab, load_restored, text2idx
+from data_utils import load_data, build_vocab, text2idx
 from enum_type import SpecialTokens
 
 
@@ -44,9 +44,11 @@ class Dataset:
     def _from_scratch(self):
         self._load_data()
         self._build_vocab()
-        self._text2idx()
         self._build_data()
         self._dump_data()
+
+    def _from_restored(self):
+        self._load_restored()
 
     def _load_data(self):
         self.logger.info('Loading data from scratch')
@@ -69,18 +71,13 @@ class Dataset:
         )
         self.logger.info('Build finished')
 
-    def _text2idx(self):
+    def _build_data(self):
         for i, prefix in enumerate(['train', 'valid', 'test']):
             data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.pointer_gen)
             for key, value in data_dict:
-
-            getattr(self, f'{prefix}_data')
-
-
-    def _build_data(self):
-        for key, value in self.__dict__.items():
-
-
+                getattr(self, f'{prefix}_data')[key] = value
+            getattr(self, f'{prefix}_data')['source_text'] = self.source_text[i]
+            getattr(self, f'{prefix}_data')['target_text'] = self.target_text[i]
 
     def _dump_data(self):
         for prefix in ['train', 'valid', 'test']:
@@ -88,7 +85,8 @@ class Dataset:
             data = getattr(self, f'{prefix}_data')
             torch.save(data, filename)
 
-
+        vocab_file = os.path.join(self.dataset_path, 'vocab.bin')
+        torch.save([self.idx2token, self.token2idx, self.max_vocab_size], vocab_file)
 
     def _detect_restored(self):
         absent_file_flag = False
@@ -99,48 +97,18 @@ class Dataset:
                 break
         return not absent_file_flag
 
-    def _from_restored(self):
+    def _load_restored(self):
         self.logger.info('Loading data from restored')
 
+        for prefix in ['train', 'valid', 'test']:
+            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
+            data = torch.load(filename)
+            setattr(self, f'{prefix}_data', data)
 
-
-        self.source_text_data, self.target_text_data, self.idx2token, self.token2idx = load_restored(
-            self.data_path, self.source_suffix, self.target_suffix
-        )
-        self.max_vocab_size = len(self.idx2token)
+        vocab_file = os.path.join(self.dataset_path, 'vocab.bin')
+        self.idx2token, self.token2idx, self.max_vocab_size = torch.load(vocab_file)
 
         self.logger.info("Restore finished")
-
-
-    def
-
-
-
-
-
-
-
-    def build(self):
-        info_str = ''
-        corpus_list = []
-        self.logger.info("Vocab size: {}".format(self.max_vocab_size))
-        for i, prefix in enumerate(['train', 'dev', 'test']):
-            source_text_data = self.source_text_data[i]
-            target_text_data = self.target_text_data[i]
-            tp_data = {
-                'idx2token': self.idx2token,
-                'token2idx': self.token2idx,
-                'source_text_data': source_text_data,
-                'target_text_data': target_text_data,
-                'vocab_size': self.max_vocab_size,
-                'max_source_length': self.max_source_length,
-                'max_target_length': self.max_target_length,
-            }
-            corpus_list.append(tp_data)
-            info_str += '{}: {} cases, '.format(prefix, len(source_text_data))
-
-        self.logger.info(info_str[:-2] + '\n')
-        return corpus_list
 
     def _info(self):
         info_str = ''
