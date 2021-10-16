@@ -69,10 +69,6 @@ def init_seed(seed, reproducibility):
         torch.backends.cudnn.deterministic = False
 
 
-def greedy_search(vocab_dist):
-    return vocab_dist.view(-1).argmax().item()
-
-
 def early_stopping(value, best, cur_step, max_step):
     stop_flag = False
     update_flag = False

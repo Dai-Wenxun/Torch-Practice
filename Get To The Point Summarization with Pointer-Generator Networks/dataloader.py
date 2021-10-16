@@ -99,35 +99,7 @@ class Dataloader:
                          self.oovs_list], f)
         self.logger.info(f"Dump {self.name} data finished")
 
-    def _article2ids(self, article_words):
-        ids = []
-        oovs = []
-        unk_id = self.unknown_token_idx
-        for w in article_words:
-            i = self.token2idx.get(w, unk_id)
-            if i == unk_id:
-                if w not in oovs:
-                    oovs.append(w)
-                oov_num = oovs.index(w)
-                ids.append(self.vocab_size + oov_num)
-            else:
-                ids.append(i)
-        return ids, oovs
 
-    def _abstract2ids(self, abstract_words, article_oovs):
-        ids = []
-        unk_id = self.unknown_token_idx
-        for w in abstract_words:
-            i = self.token2idx.get(w, unk_id)
-            if i == unk_id:
-                if w in article_oovs:
-                    vocab_idx = self.vocab_size + article_oovs.index(w)
-                    ids.append(vocab_idx)
-                else:
-                    ids.append(unk_id)
-            else:
-                ids.append(i)
-        return ids
 
     def get_reference(self):
         return self.target_text_data
@@ -138,22 +110,6 @@ class Dataloader:
         else:
             return math.floor(self.pr_end / self.batch_size) if self.drop_last \
                 else math.ceil(self.pr_end / self.batch_size)
-
-    @property
-    def padding_token_idx(self):
-        return self.token2idx[self.padding_token]
-
-    @property
-    def unknown_token_idx(self):
-        return self.token2idx[self.unknown_token]
-
-    @property
-    def sos_token_idx(self):
-        return self.token2idx[self.sos_token]
-
-    @property
-    def eos_token_idx(self):
-        return self.token2idx[self.eos_token]
 
     @property
     def pr_end(self):

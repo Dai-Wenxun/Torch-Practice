@@ -3,27 +3,26 @@ import collections
 import pickle
 
 
-def load_data(dataset_path, max_seq_length):
+def load_data(dataset_path, max_length):
     with open(dataset_path, "r", encoding='utf-8') as fin:
         text = []
         for line in fin:
             line = line.strip().lower()
             words = line.split()
-            text.append(words[:max_seq_length])
+            text.append(words[:max_length])
     return text
 
 
-def build_vocab(text_data_list, max_vocab_size, special_tokens):
+def build_vocab(text, max_vocab_size, special_token_list):
     word_list = list()
-    for text_data in text_data_list:
-        for text in text_data:
-            for word in text:
-                word_list.append(word)
+    for group in text:
+        for doc in group:
+            word_list.extend(doc)
 
     token_count = [(count, token) for token, count in collections.Counter(word_list).items()]
     token_count.sort(reverse=True)
     tokens = [word for count, word in token_count]
-    tokens = special_tokens + tokens
+    tokens = special_token_list + tokens
     tokens = tokens[:max_vocab_size]
 
     max_vocab_size = len(tokens)
@@ -48,25 +47,6 @@ def dump_data(data_path, source_text_data, target_text_data, idx2token, token2id
                 pickle.dump(target_text, f_text)
 
 
-def detect_restored(data_path, source_suffix="", target_suffix=""):
-    required_files = []
-    for prefix in ['train', 'dev', 'test']:
-        source_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, source_suffix))
-        target_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, target_suffix))
-        required_files.append(source_file)
-        required_files.append(target_file)
-
-    vocab_file = os.path.join(data_path, 'vocab.bin')
-    required_files.append(vocab_file)
-
-    absent_file_flag = False
-    for filename in required_files:
-        if not os.path.isfile(filename):
-            absent_file_flag = True
-            break
-    return not absent_file_flag
-
-
 def load_restored(data_path, source_suffix="", target_suffix=""):
     source_text_data = []
     target_text_data = []
@@ -85,3 +65,33 @@ def load_restored(data_path, source_suffix="", target_suffix=""):
         idx2token, token2idx = pickle.load(f_vocab)
 
     return source_text_data, target_text_data, idx2token, token2idx
+
+def _article2ids(self, article_words):
+    ids = []
+    oovs = []
+    unk_id = self.unknown_token_idx
+    for w in article_words:
+        i = self.token2idx.get(w, unk_id)
+        if i == unk_id:
+            if w not in oovs:
+                oovs.append(w)
+            oov_num = oovs.index(w)
+            ids.append(self.vocab_size + oov_num)
+        else:
+            ids.append(i)
+    return ids, oovs
+
+def _abstract2ids(self, abstract_words, article_oovs):
+    ids = []
+    unk_id = self.unknown_token_idx
+    for w in abstract_words:
+        i = self.token2idx.get(w, unk_id)
+        if i == unk_id:
+            if w in article_oovs:
+                vocab_idx = self.vocab_size + article_oovs.index(w)
+                ids.append(vocab_idx)
+            else:
+                ids.append(unk_id)
+        else:
+            ids.append(i)
+    return ids

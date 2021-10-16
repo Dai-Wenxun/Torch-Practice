@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from module import Encoder, Decoder
-from utils import greedy_search
+from strategy import greedy_search, Beam_Search_Hypothesis
 
 
 class Model(nn.Module):
