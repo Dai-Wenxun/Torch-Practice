@@ -5,7 +5,6 @@ bidirectional: True
 num_dec_layers: 1
 dropout_ratio: 0.2
 attention: False
-alignment_method: "concat"
 decoding_strategy: 'beam_search'
 beam_size: 4
 pointer_gen: True

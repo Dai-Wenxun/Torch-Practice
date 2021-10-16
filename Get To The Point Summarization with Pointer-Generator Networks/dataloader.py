@@ -72,20 +72,6 @@ class Dataloader:
         for key, value in zip(keys, list(zip(*values))):
             getattr(self.dataset, key)[:] = value
 
-
-
-        temp = list(
-            zip(
-                self.source_text_data, self.source_text_idx_data, self.source_idx_length_data,
-                self.target_text_data, self.input_target_text_idx_data, self.output_target_text_idx_data,
-                self.target_idx_length_data, self.extended_source_text_idx_data, self.oovs_list
-            )
-        )
-        random.shuffle(temp)
-        self.source_text_data[:], self.source_text_idx_data[:], self.source_idx_length_data[:], \
-        self.target_text_data[:], self.input_target_text_idx_data[:], self.output_target_text_idx_data[:], \
-        self.target_idx_length_data[:], self.extended_source_text_idx_data[:], self.oovs_list[:] = zip(*temp)
-
     def _next_batch_data(self):
         source_text = self.source_text[self.pr:self.pr + self.step]
         source_idx = self.source_idx[self.pr:self.pr + self.step]
