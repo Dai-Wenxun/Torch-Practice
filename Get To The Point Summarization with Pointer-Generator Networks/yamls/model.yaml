@@ -8,6 +8,6 @@ attention: False
 alignment_method: "concat"
 decoding_strategy: 'beam_search'
 beam_size: 4
-pointer_gen: False
+pointer_gen: True
 is_coverage: False
 cov_loss_lambda: 1.0

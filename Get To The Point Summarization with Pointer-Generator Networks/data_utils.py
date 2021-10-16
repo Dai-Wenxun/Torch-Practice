@@ -18,7 +18,9 @@ def build_vocab(text, max_vocab_size, special_token_list):
     word_list = list()
     for group in text:
         for doc in group:
-            word_list.extend(doc)
+            for word in doc:
+                if word not in ['nostalgia', 'gone', 'water', 'wine', 'cherish']:
+                    word_list.append(word)
 
     token_count = [(count, token) for token, count in collections.Counter(word_list).items()]
     token_count.sort(reverse=True)
@@ -30,42 +32,6 @@ def build_vocab(text, max_vocab_size, special_token_list):
     idx2token = dict(zip(range(max_vocab_size), tokens))
     token2idx = dict(zip(tokens, range(max_vocab_size)))
     return idx2token, token2idx, max_vocab_size
-
-
-def dump_data(data_path, source_text_data, target_text_data, idx2token, token2idx, source_suffix="", target_suffix=""):
-        vocab_file = os.path.join(data_path, 'vocab.bin')
-        with open(vocab_file, "wb") as f_vocab:
-            pickle.dump([idx2token, token2idx], f_vocab)
-
-        for i, prefix in enumerate(['train', 'dev', 'test']):
-            source_text = source_text_data[i]
-            target_text = target_text_data[i]
-            source_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, source_suffix))
-            target_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, target_suffix))
-            with open(source_file, "wb") as f_text:
-                pickle.dump(source_text, f_text)
-            with open(target_file, "wb") as f_text:
-                pickle.dump(target_text, f_text)
-
-
-def load_restored(data_path, source_suffix="", target_suffix=""):
-    source_text_data = []
-    target_text_data = []
-    for prefix in ['train', 'dev', 'test']:
-        source_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, source_suffix))
-        target_file = os.path.join(data_path, '{}.{}.bin'.format(prefix, target_suffix))
-        with open(source_file, "rb") as f_text:
-            text = pickle.load(f_text)
-            source_text_data.append(text)
-        with open(target_file, "rb") as f_text:
-            text = pickle.load(f_text)
-            target_text_data.append(text)
-
-    vocab_file = os.path.join(data_path, 'vocab.bin')
-    with open(vocab_file, "rb") as f_vocab:
-        idx2token, token2idx = pickle.load(f_vocab)
-
-    return source_text_data, target_text_data, idx2token, token2idx
 
 
 def text2idx(source_text, target_text, token2idx, pointer_gen=False):
@@ -131,3 +97,18 @@ def abstract2ids(abstract_words, article_oovs, token2idx, unknown_idx):
         else:
             ids.append(i)
     return ids
+
+
+def _pad_batch_sequence(self, text_idx_data, idx_length_data):
+    max_len = max(idx_length_data)
+    new_data = []
+    for seq, len_seq in zip(text_idx_data, idx_length_data):
+        new_data.append(seq + [self.padding_token_idx] * (max_len - len_seq))
+    new_data = torch.LongTensor(new_data)
+    length = torch.LongTensor(idx_length_data)
+    return new_data, length
+
+def _get_extra_zeros(self, oovs_list):
+    max_oovs_num = max([len(oovs) for oovs in oovs_list])
+    extra_zeros = torch.zeros(len(oovs_list), max_oovs_num)
+    return extra_zeros

@@ -10,80 +10,27 @@ from enum_type import SpecialTokens
 
 class Dataloader:
     def __init__(self, name, config, dataset, batch_size, shuffle=False, drop_last=True):
-        self.logger = getLogger()
         self.name = name
         self.config = config
-        self.padding_token = SpecialTokens.PAD
-        self.unknown_token = SpecialTokens.UNK
-        self.sos_token = SpecialTokens.SOS
-        self.eos_token = SpecialTokens.EOS
-
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.drop_last = drop_last
 
         self.device = config['device']
+        self.interface_only = config['interface_only']
+        if self.name == 'train':
+            self.iters_per_epoch = config['iters_per_epoch']
 
         self.step = batch_size
         self.pr = 0
         self.std_pr = 0
-        if self.name == 'train':
-            self.iters_per_epoch = config['iters_per_epoch']
+        self.pr_end = len(self.target_text)
 
-        self.data_path = config['data_path']
-        self.processed_file = os.path.join(self.data_path, '{}.processed.bin'.format(self.name))
-        self.vocab_size = dataset['vocab_size']
-        self.max_source_length = dataset['max_source_length']
-        self.max_target_length = dataset['max_target_length']
-        self.interface_only = config['interface_only']
-
-        self._get_preset()
-        if not self.interface_only:
-            if self._detect_processed():
-                self._load_processed()
-            else:
-                self._data_process()
-                self._dump_data()
-
-    def _get_preset(self):
-        required_key_list = ['source_text_data', 'target_text_data', 'idx2token', 'token2idx']
-        for dataset_attr in required_key_list:
-            assert dataset_attr in self.dataset
-            setattr(self, dataset_attr, self.dataset[dataset_attr])
-        self.source_text_idx_data = []
-        self.input_target_text_idx_data = []
-        self.output_target_text_idx_data = []
-        self.source_idx_length_data = []
-        self.target_idx_length_data = []
-        self.extended_source_text_idx_data = []
-        self.oovs_list = []
-
-    def _detect_processed(self):
-        return os.path.isfile(self.processed_file)
-
-    def _load_processed(self):
-        self.logger.info(f"Loading {self.name} data from processed")
-        with open(self.processed_file, 'rb') as f:
-            self.source_text_idx_data, self.input_target_text_idx_data, self.output_target_text_idx_data, \
-            self.source_idx_length_data, self.target_idx_length_data, self.extended_source_text_idx_data, \
-            self.oovs_list = pickle.load(f)
-        self.logger.info(f"Processed {self.name} data Loaded")
-
-
-
-    def _dump_data(self):
-        self.logger.info(f"Dumping processed {self.name} data")
-        with open(self.processed_file, "wb") as f:
-            pickle.dump([self.source_text_idx_data, self.input_target_text_idx_data, self.output_target_text_idx_data,
-                         self.source_idx_length_data, self.target_idx_length_data, self.extended_source_text_idx_data,
-                         self.oovs_list], f)
-        self.logger.info(f"Dump {self.name} data finished")
-
-
-
-    def get_reference(self):
-        return self.target_text_data
+    def __getattr__(self, name):
+        if hasattr(self.dataset, name):
+            return getattr(self.dataset, name)
+        return None
 
     def __len__(self):
         if self.name == 'train':
@@ -92,28 +39,29 @@ class Dataloader:
             return math.floor(self.pr_end / self.batch_size) if self.drop_last \
                 else math.ceil(self.pr_end / self.batch_size)
 
-    @property
-    def pr_end(self):
-        return len(self.input_target_text_idx_data)
-
-    def _pad_batch_sequence(self, text_idx_data, idx_length_data):
-        max_len = max(idx_length_data)
-        new_data = []
-        for seq, len_seq in zip(text_idx_data, idx_length_data):
-            new_data.append(seq + [self.padding_token_idx] * (max_len - len_seq))
-        new_data = torch.LongTensor(new_data)
-        length = torch.LongTensor(idx_length_data)
-        return new_data, length
-
-    def _get_extra_zeros(self, oovs_list):
-        max_oovs_num = max([len(oovs) for oovs in oovs_list])
-        extra_zeros = torch.zeros(len(oovs_list), max_oovs_num)
-        return extra_zeros
-
     def __iter__(self):
         if self.shuffle:
             self._shuffle()
         return self
+
+    def __next__(self):
+        if (self.drop_last and self.std_pr + self.batch_size >= self.pr_end) or \
+                (not self.drop_last and self.pr >= self.pr_end):
+            self.pr = 0
+            self.std_pr = 0
+            raise StopIteration()
+
+        if self.name == 'train':
+            if self.std_pr == self.iters_per_epoch * self.batch_size:  # 3200
+                self.pr = 0
+                self.std_pr = 0
+                raise StopIteration()
+
+        next_batch = self._next_batch_data()
+        self.pr += self.batch_size
+        self.std_pr += self.batch_size
+        return next_batch
+
 
     def _shuffle(self):
         temp = list(
@@ -128,23 +76,10 @@ class Dataloader:
         self.target_text_data[:], self.input_target_text_idx_data[:], self.output_target_text_idx_data[:], \
         self.target_idx_length_data[:], self.extended_source_text_idx_data[:], self.oovs_list[:] = zip(*temp)
 
-    def __next__(self):
-        if (self.drop_last and self.std_pr + self.batch_size >= self.pr_end) or \
-                (not self.drop_last and self.pr >= self.pr_end):
-            self.pr = 0
-            self.std_pr = 0
-            raise StopIteration()
 
-        if self.name == 'train':
-            if self.std_pr == self.iters_per_epoch * self.batch_size:  # 1600
-                self.pr = 0
-                self.std_pr = 0
-                raise StopIteration()
 
-        next_batch = self._next_batch_data()
-        self.pr += self.batch_size
-        self.std_pr += self.batch_size
-        return next_batch
+    def get_reference(self):
+        return self.target_text_data
 
     def _next_batch_data(self):
         source_text = self.source_text_data[self.pr:self.pr + self.step]

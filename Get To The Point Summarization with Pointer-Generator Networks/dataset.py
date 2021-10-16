@@ -29,6 +29,7 @@ class Dataset:
             setattr(self, f'{prefix}_data', dict())
         self.source_text = []
         self.target_text = []
+        self.loader_needed = []
 
     def _init_special_token(self):
         self.padding_token = SpecialTokens.PAD
@@ -41,6 +42,15 @@ class Dataset:
         self.eos_token_idx = 3
         self.special_token_list = [self.padding_token, self.unknown_token, self.sos_token, self.eos_token]
 
+    def _detect_restored(self):
+        absent_file_flag = False
+        for prefix in ['train', 'valid', 'test', 'vocab']:
+            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
+            if not os.path.isfile(filename):
+                absent_file_flag = True
+                break
+        return not absent_file_flag
+
     def _from_scratch(self):
         self._load_data()
         self._build_vocab()
@@ -52,7 +62,7 @@ class Dataset:
 
     def _load_data(self):
         self.logger.info('Loading data from scratch')
-        for prefix in ['train', 'dev', 'test']:
+        for prefix in ['train', 'valid', 'test']:
             source_file = os.path.join(self.dataset_path, f'{prefix}.src')
             target_file = os.path.join(self.dataset_path, f'{prefix}.tgt')
 
@@ -74,7 +84,7 @@ class Dataset:
     def _build_data(self):
         for i, prefix in enumerate(['train', 'valid', 'test']):
             data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.pointer_gen)
-            for key, value in data_dict:
+            for key, value in data_dict.items():
                 getattr(self, f'{prefix}_data')[key] = value
             getattr(self, f'{prefix}_data')['source_text'] = self.source_text[i]
             getattr(self, f'{prefix}_data')['target_text'] = self.target_text[i]
@@ -87,15 +97,6 @@ class Dataset:
 
         vocab_file = os.path.join(self.dataset_path, 'vocab.bin')
         torch.save([self.idx2token, self.token2idx, self.max_vocab_size], vocab_file)
-
-    def _detect_restored(self):
-        absent_file_flag = False
-        for prefix in ['train', 'valid', 'test']:
-            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
-            if not os.path.isfile(filename):
-                absent_file_flag = True
-                break
-        return not absent_file_flag
 
     def _load_restored(self):
         self.logger.info('Loading data from restored')

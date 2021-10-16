@@ -1,4 +1,5 @@
 import os
+import copy
 import torch
 import random
 import datetime
@@ -10,7 +11,15 @@ from dataloader import Dataloader
 
 def data_preparation(config):
     dataset = Dataset(config)
-    train_dataset, valid_dataset, test_dataset = dataset.build()
+
+    train_dataset = copy.copy(dataset)
+    valid_dataset = copy.copy(dataset)
+    test_dataset = copy.copy(dataset)
+    for prefix in ['train', 'valid', 'test']:
+        dataset = locals()[f'{prefix}_dataset']
+        content = getattr(dataset, f'{prefix}_data')
+        for key, value in content.items():
+            setattr(dataset, key, value)
 
     test_data = Dataloader(
         name='test',

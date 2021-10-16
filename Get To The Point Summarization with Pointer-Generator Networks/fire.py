@@ -18,7 +18,7 @@ def interface(config):
 
 def train(config):
     init_seed(config['seed'], config['reproducibility'])
-    # init_logger(config)
+    init_logger(config)
     logger = getLogger()
     logger.info(config)
 
