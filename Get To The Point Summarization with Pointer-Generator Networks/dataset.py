@@ -29,7 +29,6 @@ class Dataset:
             setattr(self, f'{prefix}_data', dict())
         self.source_text = []
         self.target_text = []
-        self.loader_needed = []
 
     def _init_special_token(self):
         self.padding_token = SpecialTokens.PAD

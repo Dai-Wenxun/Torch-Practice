@@ -1,11 +1,8 @@
 import math
-import os
 import torch
-import pickle
 import random
-from logging import getLogger
 
-from enum_type import SpecialTokens
+from data_utils import pad_sequence, get_extra_zeros, article2ids, abstract2ids
 
 
 class Dataloader:
@@ -62,8 +59,21 @@ class Dataloader:
         self.std_pr += self.batch_size
         return next_batch
 
-
     def _shuffle(self):
+        keys = []
+        values = []
+
+        for key in self.train_data.keys():
+            keys.append(key)
+            values.append(getattr(self, key))
+
+        values = list(zip(*values))
+        random.shuffle(values)
+        for key, value in zip(keys, list(zip(*values))):
+            getattr(self.dataset, key)[:] = value
+
+
+
         temp = list(
             zip(
                 self.source_text_data, self.source_text_idx_data, self.source_idx_length_data,
@@ -76,31 +86,19 @@ class Dataloader:
         self.target_text_data[:], self.input_target_text_idx_data[:], self.output_target_text_idx_data[:], \
         self.target_idx_length_data[:], self.extended_source_text_idx_data[:], self.oovs_list[:] = zip(*temp)
 
-
-
-    def get_reference(self):
-        return self.target_text_data
-
     def _next_batch_data(self):
-        source_text = self.source_text_data[self.pr:self.pr + self.step]
-        tp_source_text_idx_data = self.source_text_idx_data[self.pr:self.pr + self.step]
-        tp_source_idx_length_data = self.source_idx_length_data[self.pr:self.pr + self.step]
-        source_idx, source_length = self._pad_batch_sequence(tp_source_text_idx_data, tp_source_idx_length_data)
+        source_text = self.source_text[self.pr:self.pr + self.step]
+        source_idx = self.source_idx[self.pr:self.pr + self.step]
+        source_length = self.source_length[self.pr:self.pr + self.step]
+        source_idx, source_length = pad_sequence(source_idx, source_length, self.padding_token_idx)
 
-        target_text = self.target_text_data[self.pr:self.pr + self.step]
-        tp_input_target_text_idx_data = self.input_target_text_idx_data[self.pr:self.pr + self.step]
-        tp_output_target_text_idx_data = self.output_target_text_idx_data[self.pr:self.pr + self.step]
+        target_text = self.target_text[self.pr:self.pr + self.step]
+        input_target_idx = self.input_target_idx[self.pr:self.pr + self.step]
+        output_target_idx = self.output_target_idx[self.pr:self.pr + self.step]
+        target_length = self.target_length[self.pr:self.pr + self.step]
 
-        tp_target_idx_length_data = self.target_idx_length_data[self.pr:self.pr + self.step]
-        input_target_idx, target_length = self._pad_batch_sequence(tp_input_target_text_idx_data,
-                                                                   tp_target_idx_length_data)
-        output_target_idx, _ = self._pad_batch_sequence(tp_output_target_text_idx_data, tp_target_idx_length_data)
-
-        tp_extended_source_text_idx_data = self.extended_source_text_idx_data[self.pr:self.pr + self.step]
-        extend_source_idx, _ = self._pad_batch_sequence(tp_extended_source_text_idx_data, tp_source_idx_length_data)
-
-        tp_oovs_list = self.oovs_list[self.pr:self.pr + self.step]
-        extra_zeros = self._get_extra_zeros(tp_oovs_list)
+        input_target_idx, target_length = pad_sequence(input_target_idx, target_length, self.padding_token_idx)
+        output_target_idx, _ = pad_sequence(output_target_idx, target_length, self.padding_token_idx)
 
         batch_data = {
             'source_text': source_text,
@@ -109,31 +107,42 @@ class Dataloader:
             'target_text': target_text,
             'input_target_idx': input_target_idx.to(self.device),
             'output_target_idx': output_target_idx.to(self.device),
-            'target_length': target_length.to(self.device),
-            'extended_source_idx': extend_source_idx.to(self.device),
-            'extra_zeros': extra_zeros.to(self.device),
-            "oovs_list": tp_oovs_list
+            'target_length': target_length.to(self.device)
         }
+
+        if self.pointer_gen:
+            extended_source_idx = self.extended_source_idx[self.pr:self.pr + self.step]
+            extended_source_idx, _ = pad_sequence(extended_source_idx, source_length, self.padding_token_idx)
+            oovs_list = self.oovs_list[self.pr:self.pr + self.step]
+            extra_zeros = get_extra_zeros(oovs_list)
+
+            batch_data['extended_source_idx'] = extended_source_idx.to(self.device)
+            batch_data['oovs_list'] = oovs_list
+            batch_data['extra_zeros'] = extra_zeros.to(self.device)
+
         return batch_data
 
+    def get_reference(self):
+        return self.target_text
+
     def get_example(self, sentence):
-
         source_text = sentence.strip().lower().split()
-
-        source_idx_ = [self.token2idx.get(w, self.unknown_token_idx) for w in source_text]
-        source_idx = torch.LongTensor([source_idx_])
-        source_length = torch.LongTensor([len(source_idx_)])
-
-        extended_source_idx_, oovs = self._article2ids(source_text)
-        extend_source_idx = torch.LongTensor([extended_source_idx_])
-        oovs_list = [oovs]
-        extra_zeros = self._get_extra_zeros(oovs_list)
+        source_idx = torch.LongTensor([[self.token2idx.get(w, self.unknown_token_idx) for w in source_text]])
+        source_length = torch.LongTensor([len(source_text)])
 
         example = {
             'source_idx': source_idx.to(self.device),  # 1 x src_len
             'source_length': source_length.to(self.device),  # 1
-            'extended_source_idx': extend_source_idx.to(self.device),  # 1 x src_len
-            'extra_zeros': extra_zeros.to(self.device),  # 1 x max_oovs_num
-            "oovs_list": oovs_list
         }
+
+        if self.pointer_gen:
+            extended_source_idx, oovs = article2ids(source_text, self.token2idx, self.unknown_token_idx)
+            extended_source_idx = torch.LongTensor([extended_source_idx])
+            oovs_list = [oovs]
+            extra_zeros = get_extra_zeros(oovs_list)
+
+            example['extended_source_idx'] = extended_source_idx.to(self.device),  # 1 x src_len
+            example['oovs_list'] = oovs_list
+            example['extra_zeros'] = extra_zeros.to(self.device)  # 1 x max_oovs_num
+
         return example
