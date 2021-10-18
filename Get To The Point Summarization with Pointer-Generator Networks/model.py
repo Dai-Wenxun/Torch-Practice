@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from module import Encoder, Decoder
-from strategy import greedy_search, Beam_Search_Hypothesis
+from strategy import greedy_search, Beam_Search
 
 
 class Model(nn.Module):
@@ -91,12 +91,13 @@ class Model(nn.Module):
             if self.is_pgen:
                 kwargs['extra_zeros'] = corpus['extra_zeros'][bid, :].unsqueeze(0)
                 kwargs['extended_source_idx'] = corpus['extended_source_idx'][bid, :].unsqueeze(0)
+                kwargs['oovs'] = oovs[bid]
 
             if self.is_coverage:
                 kwargs['coverages'] = torch.zeros((1, 1, src_len)).to(self.device)
 
             if self.strategy == 'beam_search':
-                hypothesis = Beam_Search_Hypothesis(
+                hypothesis = Beam_Search(
                     self.beam_size, self.sos_token_idx, self.eos_token_idx, self.unknown_token_idx,
                     self.device, self.id2token
                 )
@@ -114,15 +115,13 @@ class Model(nn.Module):
                     input_target_idx, decoder_hidden_states, kwargs = hypothesis.step(
                         gen_id, vocab_dists, decoder_hidden_states, kwargs)
 
-
                 if self.strategy == 'greedy_search':
                     if token_idx == self.eos_token_idx:
                         break
                     else:
-                        if oovs is not None:
-                            if token_idx >= self.vocab_size:
-                                generated_tokens.append(oovs[bid][token_idx - self.vocab_size])
-                                token_idx = self.unknown_token_idx
+                        if token_idx >= self.vocab_size:
+                            generated_tokens.append(oovs[bid][token_idx - self.vocab_size])
+                            token_idx = self.unknown_token_idx
                         else:
                             generated_tokens.append(self.idx2token[token_idx])
                         input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
@@ -162,7 +161,7 @@ class Model(nn.Module):
         if self.is_coverage:
             kwargs['coverages'] = torch.zeros((batch_size, 1, src_len)).to(self.device)  # B x 1 x src_len
 
-        vocab_dists, decoder_hidden_states, kwargs = self.decoder(
+        vocab_dists, _, kwargs = self.decoder(
             input_embeddings, encoder_hidden_states, kwargs=kwargs
         )
         # Loss
