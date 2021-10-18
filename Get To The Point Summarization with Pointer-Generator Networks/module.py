@@ -27,27 +27,47 @@ class Decoder(nn.Module):
             vocab_size,
             embedding_size,
             hidden_size,
-            context_size,
             num_dec_layers,
             dropout_ratio=0.0,
-            alignment_method='concat',
-            is_coverage=True
+            is_attention=False,
+            is_pgen=False,
+            is_coverage=False
     ):
         super(Decoder, self).__init__()
-        self.is_coverage = is_coverage
-        self.context_size = context_size
 
         self.decoder = nn.LSTM(embedding_size, hidden_size, num_dec_layers,
                                batch_first=True, dropout=dropout_ratio)
-
-        self.attention = LuongAttention(context_size, hidden_size, alignment_method, is_coverage)
-        self.x_context = nn.Linear(embedding_size + context_size, embedding_size)
-        self.attention_dense = nn.Linear(hidden_size + context_size, hidden_size)
         self.vocab_linear = nn.Linear(hidden_size, vocab_size)
-        self.p_gen_linear = nn.Linear(context_size + hidden_size + embedding_size, 1)
 
-    def forward(self, input_embeddings, context, decoder_hidden_states, encoders_outputs, encoder_masks,
-                extra_zeros, extended_source_idx, coverage=None):
+        self.is_attention = is_attention
+        self.is_pgen = is_pgen and is_attention
+        self.is_coverage = is_coverage
+
+        context_size = hidden_size
+
+        if self.is_attention:
+            self.attention = Attention(hidden_size, hidden_size, is_coverage)
+            self.x_context = nn.Linear(embedding_size + hidden_size, embedding_size)
+            self.attention_dense = nn.Linear(hidden_size + hidden_size, hidden_size)
+
+        if is_pgen:
+            self.p_gen_linear = nn.Linear(context_size + hidden_size + embedding_size, 1)
+
+#  encoder_outputs=None, encoder_masks=None, context=None,
+#  extended_source_idx=None, extra_zeros=None,
+#  coverages=None
+
+    def forward(self, input_embeddings, decoder_hidden_states, kwargs=None):
+        if not self.is_attention:
+            decoder_outputs, decoder_hidden_states = self.decoder(input_embeddings, decoder_hidden_states)
+            vocab_dists = F.softmax(self.vocab_linear(decoder_outputs), dim=-1)
+            return vocab_dists, decoder_hidden_states, kwargs
+
+
+
+
+
+
         final_vocab_dists = []
         attn_dists = []
         coverages = []
@@ -61,7 +81,7 @@ class Decoder(nn.Module):
 
             step_decoder_outputs, decoder_hidden_states = self.decoder(x, decoder_hidden_states)  # B x 1 x 256
 
-            context, attn_dist, coverage = self.attention(step_decoder_outputs, encoders_outputs,
+            context, attn_dist, coverage = self.attention(step_decoder_outputs, encoder_outputs,
                                                           encoder_masks, coverage)  # B x 1 x src_len
 
             vocab_dist = self.vocab_linear(self.attention_dense(torch.cat((step_decoder_outputs, context), dim=-1)))
@@ -85,30 +105,21 @@ class Decoder(nn.Module):
         if self.is_coverage:
             coverages = torch.cat(coverages, dim=1)  # B x dec_len x src_len
 
-        return final_vocab_dists, context, decoder_hidden_states, attn_dists, p_gen, coverages
+        return final_vocab_dists, context, decoder_hidden_states, attn_dists, coverages
 
 
-class LuongAttention(nn.Module):
-    def __init__(self, source_size, target_size, alignment_method='concat', is_coverage=True):
-        super(LuongAttention, self).__init__()
+class Attention(nn.Module):
+    def __init__(self, source_size, target_size, is_coverage=True):
+        super(Attention, self).__init__()
         self.source_size = source_size
         self.target_size = target_size
-        self.alignment_method = alignment_method
         self.is_coverage = is_coverage
 
         if self.is_coverage:
             self.coverage_linear = nn.Linear(1, target_size, bias=False)
 
-        if self.alignment_method == 'general':
-            self.energy_linear = nn.Linear(target_size, source_size, bias=False)
-        elif self.alignment_method == 'concat':
-            self.energy_linear = nn.Linear(source_size + target_size, target_size)
-            self.v = nn.Parameter(torch.rand(target_size, dtype=torch.float32))
-        elif self.alignment_method == 'dot':
-            assert self.source_size == target_size
-        else:
-            raise ValueError(
-                "The alignment method for Luong Attention must be in ['general', 'concat', 'dot'].")
+        self.energy_linear = nn.Linear(source_size + target_size, target_size)
+        self.v = nn.Parameter(torch.rand(target_size, dtype=torch.float32))
 
     def score(self, decoder_hidden_states, encoder_outputs, coverage):
         tgt_len = decoder_hidden_states.size(1)
@@ -116,30 +127,15 @@ class LuongAttention(nn.Module):
 
         if self.is_coverage:
             coverage = self.coverage_linear(coverage.unsqueeze(3))
-
-        if self.alignment_method == 'general':
-            energy = self.energy_linear(decoder_hidden_states)
-            encoder_outputs = encoder_outputs.permute(0, 2, 1)
-            energy = energy.bmm(encoder_outputs)
-            return energy
-        elif self.alignment_method == 'concat':
-            # B * tgt_len * src_len * target_size
-            decoder_hidden_states = decoder_hidden_states.unsqueeze(2).repeat(1, 1, src_len, 1)
-            encoder_outputs = encoder_outputs.unsqueeze(1).repeat(1, tgt_len, 1, 1)
-            energy = self.energy_linear(torch.cat((decoder_hidden_states, encoder_outputs), dim=-1))
-            if self.is_coverage:
-                energy = energy + coverage
-            energy = torch.tanh(energy)
-            energy = self.v.mul(energy).sum(dim=-1)
-            return energy
-        elif self.alignment_method == 'dot':
-            encoder_outputs = encoder_outputs.permute(0, 2, 1)
-            energy = decoder_hidden_states.bmm(encoder_outputs)
-            return energy
-        else:
-            raise NotImplementedError(
-                "No such alignment method {} for computing Luong scores.".format(self.alignment_method)
-            )
+        # B * tgt_len * src_len * target_size
+        decoder_hidden_states = decoder_hidden_states.unsqueeze(2).repeat(1, 1, src_len, 1)
+        encoder_outputs = encoder_outputs.unsqueeze(1).repeat(1, tgt_len, 1, 1)
+        energy = self.energy_linear(torch.cat((decoder_hidden_states, encoder_outputs), dim=-1))
+        if self.is_coverage:
+            energy = energy + coverage
+        energy = torch.tanh(energy)
+        energy = self.v.mul(energy).sum(dim=-1)
+        return energy
 
     def forward(self, decoder_hidden_states, encoder_outputs, encoder_masks, coverage=None):
         tgt_len = decoder_hidden_states.size(1)

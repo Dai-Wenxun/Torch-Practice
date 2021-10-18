@@ -2,7 +2,7 @@ import math
 import torch
 import random
 
-from data_utils import pad_sequence, get_extra_zeros, article2ids, abstract2ids
+from data_utils import pad_sequence, get_extra_zeros, article2ids
 
 
 class Dataloader:
@@ -15,7 +15,6 @@ class Dataloader:
         self.drop_last = drop_last
 
         self.device = config['device']
-        self.interface_only = config['interface_only']
         if self.name == 'train':
             self.iters_per_epoch = config['iters_per_epoch']
 
@@ -25,8 +24,9 @@ class Dataloader:
         self.pr_end = len(self.target_text)
 
     def __getattr__(self, name):
-        if hasattr(self.dataset, name):
-            return getattr(self.dataset, name)
+        value = getattr(self.dataset, name)
+        if value is not None:
+            return value
         return None
 
     def __len__(self):
@@ -73,12 +73,10 @@ class Dataloader:
             getattr(self.dataset, key)[:] = value
 
     def _next_batch_data(self):
-        source_text = self.source_text[self.pr:self.pr + self.step]
         source_idx = self.source_idx[self.pr:self.pr + self.step]
         source_length = self.source_length[self.pr:self.pr + self.step]
         source_idx, source_length = pad_sequence(source_idx, source_length, self.padding_token_idx)
 
-        target_text = self.target_text[self.pr:self.pr + self.step]
         input_target_idx = self.input_target_idx[self.pr:self.pr + self.step]
         output_target_idx = self.output_target_idx[self.pr:self.pr + self.step]
         target_length = self.target_length[self.pr:self.pr + self.step]
@@ -87,16 +85,14 @@ class Dataloader:
         output_target_idx, _ = pad_sequence(output_target_idx, target_length, self.padding_token_idx)
 
         batch_data = {
-            'source_text': source_text,
             'source_idx': source_idx.to(self.device),
             'source_length': source_length.to(self.device),
-            'target_text': target_text,
             'input_target_idx': input_target_idx.to(self.device),
             'output_target_idx': output_target_idx.to(self.device),
             'target_length': target_length.to(self.device)
         }
 
-        if self.pointer_gen:
+        if self.is_pgen:
             extended_source_idx = self.extended_source_idx[self.pr:self.pr + self.step]
             extended_source_idx, _ = pad_sequence(extended_source_idx, source_length, self.padding_token_idx)
             oovs_list = self.oovs_list[self.pr:self.pr + self.step]

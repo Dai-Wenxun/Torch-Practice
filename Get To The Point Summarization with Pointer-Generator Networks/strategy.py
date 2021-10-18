@@ -1,5 +1,7 @@
 import torch
 
+import torch.nn.functional as F
+
 
 def greedy_search(vocab_dist):
     return vocab_dist.view(-1).argmax().item()
@@ -21,9 +23,9 @@ class Beam_Search_Hypothesis:
         self.hyp_scores = torch.zeros(1).to(device)
 
 
-    def step(self, gen_idx, vocab_dists, decoder_hidden_states):
+    def step(self, gen_idx, vocab_dists, decoder_hidden_states, kwargs=None):
 
-        vocab_dists = vocab_dists.squeeze(1)  # hyp_num x vocab_size
+        vocab_dists = torch.log(vocab_dists.squeeze(1)) # hyp_num x vocab_size
         vocab_size = vocab_dists.size(-1)
 
         live_hyp_num = self.beam_size - len(self.completed_hypotheses)

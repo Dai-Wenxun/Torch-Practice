@@ -12,7 +12,7 @@ class Dataset:
         self.max_vocab_size = config['max_vocab_size']
         self.source_max_length = config['src_len']
         self.target_max_length = config['tgt_len']
-        self.pointer_gen = config['pointer_gen']
+        self.is_pgen = config['is_pgen']
 
         self.logger = getLogger()
         self._init_special_token()
@@ -44,7 +44,8 @@ class Dataset:
     def _detect_restored(self):
         absent_file_flag = False
         for prefix in ['train', 'valid', 'test', 'vocab']:
-            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
+            filename = os.path.join(self.dataset_path,  f'{prefix}.bin' if prefix == 'vocab' else
+                                    f'{prefix}_raw.bin' if not self.is_pgen else f'{prefix}_extended.bin')
             if not os.path.isfile(filename):
                 absent_file_flag = True
                 break
@@ -82,7 +83,7 @@ class Dataset:
 
     def _build_data(self):
         for i, prefix in enumerate(['train', 'valid', 'test']):
-            data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.pointer_gen)
+            data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.is_pgen)
             for key, value in data_dict.items():
                 getattr(self, f'{prefix}_data')[key] = value
             getattr(self, f'{prefix}_data')['source_text'] = self.source_text[i]
@@ -90,7 +91,8 @@ class Dataset:
 
     def _dump_data(self):
         for prefix in ['train', 'valid', 'test']:
-            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
+            filename = os.path.join(self.dataset_path,
+                                    f'{prefix}_raw.bin' if not self.is_pgen else f'{prefix}_extended.bin')
             data = getattr(self, f'{prefix}_data')
             torch.save(data, filename)
 
@@ -101,7 +103,8 @@ class Dataset:
         self.logger.info('Loading data from restored')
 
         for prefix in ['train', 'valid', 'test']:
-            filename = os.path.join(self.dataset_path, f'{prefix}.bin')
+            filename = os.path.join(self.dataset_path,
+                                    f'{prefix}_raw.bin' if not self.is_pgen else f'{prefix}_extended.bin')
             data = torch.load(filename)
             setattr(self, f'{prefix}_data', data)
 

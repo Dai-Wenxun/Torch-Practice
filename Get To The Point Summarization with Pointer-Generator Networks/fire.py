@@ -39,7 +39,7 @@ def train(config):
 
 
 if __name__ == '__main__':
-    config = Config(config_dict={'test_only': False,
+    config = Config(config_dict={'test_only': True,
                                  'interface_only': False,
                                  'load_experiment': None})
 
