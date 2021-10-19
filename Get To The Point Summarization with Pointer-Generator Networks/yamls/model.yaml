@@ -6,7 +6,7 @@ num_dec_layers: 1
 dropout_ratio: 0.2
 decoding_strategy: 'beam_search'
 beam_size: 4
-is_attention: False
-is_pgen: False
+is_attention: True
+is_pgen: True
 is_coverage: True
 cov_loss_lambda: 1.0

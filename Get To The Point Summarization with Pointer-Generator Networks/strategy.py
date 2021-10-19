@@ -40,9 +40,7 @@ class Beam_Search:
 
     def generate(self):
         if len(self.completed_hypotheses) == 0:
-            length = torch.tensor([len(tokens)-1 for tokens in self.hypothetic_token]).to(self.device)
-            _, top_1_index = torch.topk(self.hyp_scores / length, k=1)
-            return self.hypothetic_token[top_1_index][1:]
+            return self.hypothetic_token[0][1:]
         else:
             return max(self.completed_hypotheses, key=lambda hyp: hyp[1])[0]
 
@@ -50,9 +48,9 @@ class Beam_Search:
         vocab_dists = torch.log(vocab_dists.squeeze(1))
         vocab_size = vocab_dists.shape[-1]
 
-        hyp_num = self.beam_size - len(self.completed_hypotheses)
+        live_hyp_num = self.beam_size - len(self.completed_hypotheses)
         tmp_hyp_scores = (self.hyp_scores.unsqueeze(1).expand_as(vocab_dists) + vocab_dists).view(-1)
-        top_scores, top_pos = torch.topk(tmp_hyp_scores, k=hyp_num)
+        top_scores, top_pos = torch.topk(tmp_hyp_scores, k=live_hyp_num)
 
         hyp_ids = (top_pos // vocab_size).tolist()
         word_ids = (top_pos % vocab_size).tolist()
@@ -64,8 +62,8 @@ class Beam_Search:
 
         for hyp_id, word_id, score in zip(hyp_ids, word_ids, top_scores):
             if word_id >= self.vocab_size:
-                word_id = self.unknown_token_idx
                 token = kwargs['oovs'][word_id - self.vocab_size]
+                word_id = self.unknown_token_idx
             else:
                 token = self.idx2token[word_id]
 
@@ -88,6 +86,7 @@ class Beam_Search:
         decoder_hidden_states = (decoder_hidden_states[0][:, new_ids, :],
                                  decoder_hidden_states[1][:, new_ids, :])
 
+        hyp_num = len(self.hypothetic_token)
         if self.is_attention:
             kwargs['encoder_outputs'] = kwargs['encoder_outputs'][0].repeat(hyp_num, 1, 1)
             kwargs['encoder_masks'] = kwargs['encoder_masks'][0].repeat(hyp_num, 1)
