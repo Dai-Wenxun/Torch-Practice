@@ -34,13 +34,13 @@ def build_vocab(text, max_vocab_size, special_token_list):
     return idx2token, token2idx, max_vocab_size
 
 
-def text2idx(source_text, target_text, token2idx, pointer_gen=False):
+def text2idx(source_text, target_text, token2idx, is_gen=False):
     data_dict = {'source_idx': [], 'source_length': [],
                  'input_target_idx': [], 'output_target_idx': [], 'target_length': []}
 
-    if pointer_gen:
+    if is_gen:
         data_dict['extended_source_idx'] = []
-        data_dict['oovs_list'] = []
+        data_dict['oovs'] = []
 
     sos_idx = token2idx[SpecialTokens.SOS]
     eos_idx = token2idx[SpecialTokens.EOS]
@@ -50,11 +50,11 @@ def text2idx(source_text, target_text, token2idx, pointer_gen=False):
         source_idx = [token2idx.get(word, unknown_idx) for word in source_sent]
         input_target_idx = [sos_idx] + [token2idx.get(word, unknown_idx) for word in target_sent]
 
-        if pointer_gen:
+        if is_gen:
             extended_source_idx, oovs = article2ids(source_sent, token2idx, unknown_idx)
             output_target_idx = abstract2ids(target_sent, oovs, token2idx, unknown_idx) + [eos_idx]
             data_dict['extended_source_idx'].append(extended_source_idx)
-            data_dict['oovs_list'].append(oovs)
+            data_dict['oovs'].append(oovs)
         else:
             output_target_idx = [token2idx.get(word, unknown_idx) for word in target_sent] + [eos_idx]
 
@@ -107,7 +107,7 @@ def pad_sequence(idx, length, padding_idx):
     return new_idx, length
 
 
-def get_extra_zeros(oovs_list):
-    max_oovs_num = max([len(oovs) for oovs in oovs_list])
-    extra_zeros = torch.zeros(len(oovs_list), max_oovs_num)
+def get_extra_zeros(oovs):
+    max_oovs_num = max([len(_) for _ in oovs])
+    extra_zeros = torch.zeros(len(oovs), max_oovs_num)
     return extra_zeros

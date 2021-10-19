@@ -157,7 +157,7 @@ class Trainer:
         return self.best_valid_score, self.best_valid_result
 
     @torch.no_grad()
-    def evaluate(self, eval_data, model_file=None, eval=True, test_sentence=None):
+    def evaluate(self, eval_data, model_file=None):
         if model_file:
             checkpoint_file = model_file
         else:
@@ -169,11 +169,6 @@ class Trainer:
             self.logger.info(message_output)
 
         self.model.eval()
-
-        if not eval:
-            generate_sentence = self.model.generate(eval_data.get_example(test_sentence))
-            print(' '.join(generate_sentence[0]))
-            return
 
         generated_corpus = []
         with torch.no_grad():

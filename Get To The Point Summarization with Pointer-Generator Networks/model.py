@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 
@@ -5,17 +6,25 @@ from module import Encoder, Decoder
 from strategy import greedy_search, Beam_Search
 
 
-class Model(nn.Module):
-    def __init__(self, config, dataset):
-        super(Model, self).__init__()
+class AbstractModel(nn.Module):
+    def __init__(self, config):
+        super(AbstractModel, self).__init__()
+        self.config = config
         self.device = config['device']
-        self.max_vocab_size = dataset.max_vocab_size
-        self.padding_token_idx = dataset.padding_token_idx
-        self.unknown_token_idx = dataset.unknown_token_idx
-        self.sos_token_idx = dataset.sos_token_idx
-        self.eos_token_idx = dataset.eos_token_idx
-        self.max_target_length = dataset.target_max_length
-        self.id2token = dataset.idx2token
+        self._init_vocab_dict()
+
+    def _init_vocab_dict(self):
+        vocab_path = os.path.join(self.config['data_path'], 'vocab.bin')
+        self.idx2token, _, self.max_vocab_size = torch.load(vocab_path)
+        self.padding_token_idx = 0
+        self.unknown_token_idx = 1
+        self.sos_token_idx = 2
+        self.eos_token_idx = 3
+
+
+class Model(AbstractModel):
+    def __init__(self, config):
+        super(Model, self).__init__(config)
 
         self.embedding_size = config['embedding_size']
         self.hidden_size = config['hidden_size']
@@ -24,10 +33,11 @@ class Model(nn.Module):
         self.bidirectional = config['bidirectional']
         self.dropout_ratio = config['dropout_ratio']
         self.strategy = config['decoding_strategy']
+        self.target_max_length = config['tgt_len']
 
         self.is_attention = config['is_attention']
-        self.is_pgen = config['is_pgen']
-        self.is_coverage = config['is_coverage']
+        self.is_pgen = config['is_pgen'] and self.is_attention
+        self.is_coverage = config['is_coverage'] and self.is_attention
 
         if self.is_coverage:
             self.cov_loss_lambda = config['cov_loss_lambda']
@@ -89,7 +99,7 @@ class Model(nn.Module):
             if self.is_pgen:
                 kwargs['extra_zeros'] = corpus['extra_zeros'][bid, :].unsqueeze(0)
                 kwargs['extended_source_idx'] = corpus['extended_source_idx'][bid, :].unsqueeze(0)
-                kwargs['oovs'] = corpus['oovs_list'][bid]
+                kwargs['oovs'] = corpus['oovs'][bid]
 
             if self.is_coverage:
                 kwargs['coverages'] = torch.zeros((1, 1, src_len)).to(self.device)
@@ -101,7 +111,7 @@ class Model(nn.Module):
                     is_attention=self.is_attention, is_pgen=self.is_pgen, is_coverage=self.is_coverage
                 )
 
-            for gen_id in range(self.max_target_length):
+            for gen_id in range(self.target_max_length):
                 input_embeddings = self.target_token_embedder(input_target_idx)
 
                 vocab_dists, decoder_hidden_states, kwargs = self.decoder(
@@ -109,24 +119,22 @@ class Model(nn.Module):
                 )
 
                 if self.strategy == 'greedy_search':
-                    token_idx = greedy_search(vocab_dists)
+                    word_id = greedy_search(vocab_dists)
+                    if word_id == self.eos_token_idx:
+                        break
+                    else:
+                        if word_id >= self.max_vocab_size:
+                            generated_tokens.append(kwargs['oovs'][word_id - self.max_vocab_size])
+                            word_id = self.unknown_token_idx
+                        else:
+                            generated_tokens.append(self.idx2token[word_id])
+                        input_target_idx = torch.LongTensor([[word_id]]).to(self.device)
                 elif self.strategy == 'beam_search':
                     input_target_idx, decoder_hidden_states, kwargs = hypothesis.step(
                         gen_id, vocab_dists, decoder_hidden_states, kwargs)
-
-                if self.strategy == 'greedy_search':
-                    if token_idx == self.eos_token_idx:
-                        break
-                    else:
-                        if token_idx >= self.vocab_size:
-                            generated_tokens.append(kwargs['oovs'][bid][token_idx - self.vocab_size])
-                            token_idx = self.unknown_token_idx
-                        else:
-                            generated_tokens.append(self.idx2token[token_idx])
-                        input_target_idx = torch.LongTensor([[token_idx]]).to(self.device)
-                elif self.strategy == 'beam_search':
                     if hypothesis.stop():
                         break
+
             if self.strategy == 'beam_search':
                 generated_tokens = hypothesis.generate()
 

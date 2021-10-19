@@ -12,7 +12,7 @@ class Dataset:
         self.max_vocab_size = config['max_vocab_size']
         self.source_max_length = config['src_len']
         self.target_max_length = config['tgt_len']
-        self.is_pgen = config['is_pgen']
+        self.is_pgen = config['is_pgen'] and config['is_attention']
 
         self.logger = getLogger()
         self._init_special_token()

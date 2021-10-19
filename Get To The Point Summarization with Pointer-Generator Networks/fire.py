@@ -7,15 +7,6 @@ from logger import init_logger
 from utils import data_preparation
 
 
-def interface(config):
-    sentence = ""
-    test_data = data_preparation(config)
-    model = Model(config, test_data).to(config['device'])
-    trainer = Trainer(config, model)
-    trainer.evaluate(test_data, model_file=config['load_experiment'], eval=False,
-                     test_sentence=sentence)
-
-
 def train(config):
     init_seed(config['seed'], config['reproducibility'])
     init_logger(config)
@@ -23,7 +14,7 @@ def train(config):
     logger.info(config)
 
     train_data, valid_data, test_data = data_preparation(config)
-    model = Model(config, test_data).to(config['device'])
+    model = Model(config).to(config['device'])
     trainer = Trainer(config, model)
 
     if config['test_only']:
@@ -40,10 +31,5 @@ def train(config):
 
 if __name__ == '__main__':
     config = Config(config_dict={'test_only': False,
-                                 'interface_only': False,
                                  'load_experiment': None})
-
-    if config['interface_only']:
-        interface(config)
-    else:
-        train(config)
+    train(config)

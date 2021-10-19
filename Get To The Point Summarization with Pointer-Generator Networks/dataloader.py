@@ -30,14 +30,11 @@ class Dataloader:
         return None
 
     def __len__(self):
-        # if self.name == 'train':
-        #     return self.iters_per_epoch
-        # else:
-        #     return math.floor(self.pr_end / self.batch_size) if self.drop_last \
-        #         else math.ceil(self.pr_end / self.batch_size)
-
-        return math.floor(self.pr_end / self.batch_size) if self.drop_last \
-            else math.ceil(self.pr_end / self.batch_size)
+        if self.name == 'train':
+            return self.iters_per_epoch
+        else:
+            return math.floor(self.pr_end / self.batch_size) if self.drop_last \
+                else math.ceil(self.pr_end / self.batch_size)
 
     def __iter__(self):
         if self.shuffle:
@@ -98,11 +95,11 @@ class Dataloader:
         if self.is_pgen:
             extended_source_idx = self.extended_source_idx[self.pr:self.pr + self.step]
             extended_source_idx, _ = pad_sequence(extended_source_idx, source_length, self.padding_token_idx)
-            oovs_list = self.oovs_list[self.pr:self.pr + self.step]
-            extra_zeros = get_extra_zeros(oovs_list)
+            oovs = self.oovs[self.pr:self.pr + self.step]
+            extra_zeros = get_extra_zeros(oovs)
 
             batch_data['extended_source_idx'] = extended_source_idx.to(self.device)
-            batch_data['oovs_list'] = oovs_list
+            batch_data['oovs'] = oovs
             batch_data['extra_zeros'] = extra_zeros.to(self.device)
 
         return batch_data
@@ -110,7 +107,7 @@ class Dataloader:
     def get_reference(self):
         return self.target_text
 
-    def get_example(self, sentence):
+    def interface(self, sentence):
         source_text = sentence.strip().lower().split()
         source_idx = torch.LongTensor([[self.token2idx.get(w, self.unknown_token_idx) for w in source_text]])
         source_length = torch.LongTensor([len(source_text)])
@@ -120,14 +117,14 @@ class Dataloader:
             'source_length': source_length.to(self.device),  # 1
         }
 
-        if self.pointer_gen:
+        if self.is_pgen:
             extended_source_idx, oovs = article2ids(source_text, self.token2idx, self.unknown_token_idx)
             extended_source_idx = torch.LongTensor([extended_source_idx])
-            oovs_list = [oovs]
-            extra_zeros = get_extra_zeros(oovs_list)
+            oovs = [oovs]
+            extra_zeros = get_extra_zeros(oovs)
 
             example['extended_source_idx'] = extended_source_idx.to(self.device),  # 1 x src_len
-            example['oovs_list'] = oovs_list
+            example['oovs'] = oovs
             example['extra_zeros'] = extra_zeros.to(self.device)  # 1 x max_oovs_num
 
         return example

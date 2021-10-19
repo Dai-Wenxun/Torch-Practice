@@ -11,7 +11,6 @@ from dataloader import Dataloader
 
 def data_preparation(config):
     dataset = Dataset(config)
-
     train_dataset = copy.copy(dataset)
     valid_dataset = copy.copy(dataset)
     test_dataset = copy.copy(dataset)
