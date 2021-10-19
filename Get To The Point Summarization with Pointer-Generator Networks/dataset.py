@@ -82,14 +82,17 @@ class Dataset:
         self.logger.info('Build finished')
 
     def _build_data(self):
+        self.logger.info('Building data')
         for i, prefix in enumerate(['train', 'valid', 'test']):
             data_dict = text2idx(self.source_text[i], self.target_text[i], self.token2idx, self.is_pgen)
             for key, value in data_dict.items():
                 getattr(self, f'{prefix}_data')[key] = value
             getattr(self, f'{prefix}_data')['source_text'] = self.source_text[i]
             getattr(self, f'{prefix}_data')['target_text'] = self.target_text[i]
+        self.logger.info('Build finished')
 
     def _dump_data(self):
+        self.logger.info('Dumping data')
         for prefix in ['train', 'valid', 'test']:
             filename = os.path.join(self.dataset_path,
                                     f'{prefix}_raw.bin' if not self.is_pgen else f'{prefix}_extended.bin')
@@ -98,6 +101,7 @@ class Dataset:
 
         vocab_file = os.path.join(self.dataset_path, 'vocab.bin')
         torch.save([self.idx2token, self.token2idx, self.max_vocab_size], vocab_file)
+        self.logger.info('Dump finished')
 
     def _load_restored(self):
         self.logger.info('Loading data from restored')
