@@ -1,7 +1,5 @@
 import torch
 
-import torch.nn.functional as F
-
 
 def greedy_search(vocab_dist):
     return vocab_dist.view(-1).argmax().item()
@@ -19,7 +17,6 @@ class Beam_Search:
             is_attention=False,
             is_pgen=False,
             is_coverage=False
-
     ):
         self.beam_size = beam_size
         self.sos_token_idx = sos_token_idx
@@ -42,18 +39,23 @@ class Beam_Search:
         return len(self.completed_hypotheses) == self.beam_size
 
     def generate(self):
-        return
+        if len(self.completed_hypotheses) == 0:
+            length = torch.tensor([len(tokens)-1 for tokens in self.hypothetic_token]).to(self.device)
+            _, top_1_index = torch.topk(self.hyp_scores / length, k=1)
+            return self.hypothetic_token[top_1_index][1:]
+        else:
+            return max(self.completed_hypotheses, key=lambda hyp: hyp[1])[0]
 
     def step(self, gen_idx, vocab_dists, decoder_hidden_states, kwargs=None):
-        vocab_dists = torch.log(vocab_dists.squeeze(1))  # hyp_num x vocab_size
+        vocab_dists = torch.log(vocab_dists.squeeze(1))
         vocab_size = vocab_dists.shape[-1]
 
         hyp_num = self.beam_size - len(self.completed_hypotheses)
         tmp_hyp_scores = (self.hyp_scores.unsqueeze(1).expand_as(vocab_dists) + vocab_dists).view(-1)
         top_scores, top_pos = torch.topk(tmp_hyp_scores, k=hyp_num)
 
-        hyp_ids = (top_pos / vocab_size).long()
-        word_ids = top_pos % vocab_size
+        hyp_ids = (top_pos // vocab_size).tolist()
+        word_ids = (top_pos % vocab_size).tolist()
 
         new_idx_hypotheses = []
         new_token_hypotheses = []
@@ -65,7 +67,7 @@ class Beam_Search:
                 word_id = self.unknown_token_idx
                 token = kwargs['oovs'][word_id - self.vocab_size]
             else:
-                token = self.idx2token(word_id)
+                token = self.idx2token[word_id]
 
             new_idx_hyp = self.hypothetic_token_idx[hyp_id] + [word_id]
             new_token_hyp = self.hypothetic_token[hyp_id] + [token]
@@ -79,7 +81,7 @@ class Beam_Search:
 
         self.hypothetic_token_idx = new_idx_hypotheses
         self.hypothetic_token = new_token_hypotheses
-        self.hyp_scores = torch.tensor(new_scores)
+        self.hyp_scores = torch.tensor(new_scores).to(self.device)
 
         input_target_idx = torch.LongTensor([[hyp[-1]] for hyp in self.hypothetic_token_idx]).to(self.device)
 
@@ -87,13 +89,13 @@ class Beam_Search:
                                  decoder_hidden_states[1][:, new_ids, :])
 
         if self.is_attention:
-            kwargs['encoder_outputs'] = kwargs['encoder_outputs'].repeat(hyp_num, 1, 1)
-            kwargs['encoder_masks'] = kwargs['encoder_masks'].repeat(hyp_num, 1, 1)
+            kwargs['encoder_outputs'] = kwargs['encoder_outputs'][0].repeat(hyp_num, 1, 1)
+            kwargs['encoder_masks'] = kwargs['encoder_masks'][0].repeat(hyp_num, 1)
             kwargs['context'] = kwargs['context'][new_ids, :, :]
 
         if self.is_pgen:
-            kwargs['extra_zeros'] = kwargs['extra_zeros'].repeat(hyp_num, 1)
-            kwargs['extended_source_idx'] = kwargs['extended_source_idx'].repeat(hyp_num, 1)
+            kwargs['extra_zeros'] = kwargs['extra_zeros'][0].repeat(hyp_num, 1)
+            kwargs['extended_source_idx'] = kwargs['extended_source_idx'][0].repeat(hyp_num, 1)
 
         if self.is_coverage:
             kwargs['coverages'] = kwargs['coverages'][new_ids, :, :]

@@ -66,8 +66,6 @@ class Model(nn.Module):
     def generate(self, corpus):
         generated_corpus = []
 
-        oovs = corpus['oovs_list']
-
         source_idx = corpus['source_idx']
         source_length = corpus['source_length']
         encoder_outputs, encoder_hidden_states = self.encode(source_idx, source_length)
@@ -91,7 +89,7 @@ class Model(nn.Module):
             if self.is_pgen:
                 kwargs['extra_zeros'] = corpus['extra_zeros'][bid, :].unsqueeze(0)
                 kwargs['extended_source_idx'] = corpus['extended_source_idx'][bid, :].unsqueeze(0)
-                kwargs['oovs'] = oovs[bid]
+                kwargs['oovs'] = corpus['oovs_list'][bid]
 
             if self.is_coverage:
                 kwargs['coverages'] = torch.zeros((1, 1, src_len)).to(self.device)
@@ -99,7 +97,8 @@ class Model(nn.Module):
             if self.strategy == 'beam_search':
                 hypothesis = Beam_Search(
                     self.beam_size, self.sos_token_idx, self.eos_token_idx, self.unknown_token_idx,
-                    self.device, self.id2token
+                    self.device, self.id2token,
+                    is_attention=self.is_attention, is_pgen=self.is_pgen, is_coverage=self.is_coverage
                 )
 
             for gen_id in range(self.max_target_length):
@@ -120,7 +119,7 @@ class Model(nn.Module):
                         break
                     else:
                         if token_idx >= self.vocab_size:
-                            generated_tokens.append(oovs[bid][token_idx - self.vocab_size])
+                            generated_tokens.append(kwargs['oovs'][bid][token_idx - self.vocab_size])
                             token_idx = self.unknown_token_idx
                         else:
                             generated_tokens.append(self.idx2token[token_idx])

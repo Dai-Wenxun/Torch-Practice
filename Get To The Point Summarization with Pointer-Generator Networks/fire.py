@@ -18,7 +18,7 @@ def interface(config):
 
 def train(config):
     init_seed(config['seed'], config['reproducibility'])
-    # init_logger(config)
+    init_logger(config)
     logger = getLogger()
     logger.info(config)
 
@@ -39,7 +39,7 @@ def train(config):
 
 
 if __name__ == '__main__':
-    config = Config(config_dict={'test_only': True,
+    config = Config(config_dict={'test_only': False,
                                  'interface_only': False,
                                  'load_experiment': None})
 

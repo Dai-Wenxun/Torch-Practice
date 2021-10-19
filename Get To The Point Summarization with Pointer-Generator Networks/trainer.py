@@ -158,22 +158,22 @@ class Trainer:
 
     @torch.no_grad()
     def evaluate(self, eval_data, model_file=None, eval=True, test_sentence=None):
-        if model_file:
-            checkpoint_file = model_file
-        else:
-            checkpoint_file = self.saved_model_file
-        checkpoint = torch.load(checkpoint_file)
-        self.model.load_state_dict(checkpoint['state_dict'])
-        message_output = 'Loading model structure and parameters from {}'.format(checkpoint_file)
-        if self.is_logger:
-            self.logger.info(message_output)
-
-        self.model.eval()
-
-        if not eval:
-            generate_sentence = self.model.generate(eval_data.get_example(test_sentence))
-            print(' '.join(generate_sentence[0]))
-            return
+        # if model_file:
+        #     checkpoint_file = model_file
+        # else:
+        #     checkpoint_file = self.saved_model_file
+        # checkpoint = torch.load(checkpoint_file)
+        # self.model.load_state_dict(checkpoint['state_dict'])
+        # message_output = 'Loading model structure and parameters from {}'.format(checkpoint_file)
+        # if self.is_logger:
+        #     self.logger.info(message_output)
+        #
+        # self.model.eval()
+        #
+        # if not eval:
+        #     generate_sentence = self.model.generate(eval_data.get_example(test_sentence))
+        #     print(' '.join(generate_sentence[0]))
+        #     return
 
         generated_corpus = []
         with torch.no_grad():

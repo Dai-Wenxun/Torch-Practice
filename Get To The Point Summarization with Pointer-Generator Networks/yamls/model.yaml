@@ -8,5 +8,5 @@ decoding_strategy: 'beam_search'
 beam_size: 4
 is_attention: False
 is_pgen: False
-is_coverage: False
+is_coverage: True
 cov_loss_lambda: 1.0

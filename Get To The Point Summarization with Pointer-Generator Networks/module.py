@@ -53,10 +53,6 @@ class Decoder(nn.Module):
         if is_pgen:
             self.p_gen_linear = nn.Linear(context_size + hidden_size + embedding_size, 1)
 
-    #  encoder_outputs=None, encoder_masks=None, context=None,
-    #  extended_source_idx=None, extra_zeros=None,
-    #  coverages=None
-
     def forward(self, input_embeddings, decoder_hidden_states, kwargs=None):
         if not self.is_attention:
             decoder_outputs, decoder_hidden_states = self.decoder(input_embeddings, decoder_hidden_states)
@@ -99,12 +95,12 @@ class Decoder(nn.Module):
             if self.is_pgen:
                 p_gen_input = torch.cat((context, decoder_outputs, x), dim=-1)  # B x 1 x (256 + 256 + 128)
                 p_gen = torch.sigmoid(self.p_gen_linear(p_gen_input))  # B x 1 x 1
-                attn_dist_ = (1 - p_gen) * attn_dist.squeeze(1)  # B x 1 x src_len
+                attn_dist_ = (1 - p_gen) * attn_dist  # B x 1 x src_len
 
                 # B x 1 x (vocab_size+max_oovs_num)
                 extended_vocab_dist = torch.cat(((vocab_dist * p_gen), extra_zeros.unsqueeze(1)), dim=-1)
 
-                vocab_dist = extended_vocab_dist.scatter_add(2, extended_source_idx.unqueeze(1), attn_dist_)
+                vocab_dist = extended_vocab_dist.scatter_add(2, extended_source_idx.unsqueeze(1), attn_dist_)
 
             if self.is_coverage:
                 attn_dists.append(attn_dist)

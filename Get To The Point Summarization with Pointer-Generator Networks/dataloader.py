@@ -30,11 +30,14 @@ class Dataloader:
         return None
 
     def __len__(self):
-        if self.name == 'train':
-            return self.iters_per_epoch
-        else:
-            return math.floor(self.pr_end / self.batch_size) if self.drop_last \
-                else math.ceil(self.pr_end / self.batch_size)
+        # if self.name == 'train':
+        #     return self.iters_per_epoch
+        # else:
+        #     return math.floor(self.pr_end / self.batch_size) if self.drop_last \
+        #         else math.ceil(self.pr_end / self.batch_size)
+
+        return math.floor(self.pr_end / self.batch_size) if self.drop_last \
+            else math.ceil(self.pr_end / self.batch_size)
 
     def __iter__(self):
         if self.shuffle:
