@@ -11,10 +11,15 @@ from dataloader import Dataloader
 
 def data_preparation(config):
     dataset = Dataset(config)
-    train_dataset = copy.copy(dataset)
-    valid_dataset = copy.copy(dataset)
+
     test_dataset = copy.copy(dataset)
-    for prefix in ['train', 'valid', 'test']:
+    prefixes = ['test']
+    if not config['test_only']:
+        train_dataset = copy.copy(dataset)
+        valid_dataset = copy.copy(dataset)
+        prefixes.extend(['train', 'valid'])
+
+    for prefix in prefixes:
         dataset = locals()[f'{prefix}_dataset']
         content = getattr(dataset, f'{prefix}_data')
         for key, value in content.items():
@@ -28,8 +33,8 @@ def data_preparation(config):
         drop_last=False
     )
 
-    if config['interface_only']:
-        return test_data
+    if config['test_only']:
+        return test_data, None, None
 
     train_data = Dataloader(
         name='train',
@@ -48,7 +53,7 @@ def data_preparation(config):
         drop_last=False
     )
 
-    return train_data, valid_data, test_data
+    return test_data, train_data, valid_data
 
 
 def get_local_time():

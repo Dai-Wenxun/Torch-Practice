@@ -1,5 +1,5 @@
 # general
-gpu_id: 3
+gpu_id: 0
 use_gpu: True
 seed: 2021
 state: INFO
@@ -7,9 +7,10 @@ reproducibility: False
 data_path: 'data/'
 checkpoint_dir: 'saved/'
 generated_text_dir: 'generated/'
+plot: True
 
 # training settings
-epochs: 1
+epochs: 150
 warmup_epochs: 10
 iters_per_epoch: 100
 train_batch_size: 32

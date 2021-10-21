@@ -46,7 +46,7 @@ bleu_1 =  sentence_bleu(references, hypothesis, weights=(1, 0, 0, 0)) # 1/7
 ## Rouge 
 
 ### Recall-Oriented Understudy for Gisting Evaluation   
- 
+
 **(兼顾召回率和精度)**
 
 Rouge-N & Rouge-L

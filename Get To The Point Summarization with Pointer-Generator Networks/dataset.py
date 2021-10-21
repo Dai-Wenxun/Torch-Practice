@@ -13,6 +13,7 @@ class Dataset:
         self.source_max_length = config['src_len']
         self.target_max_length = config['tgt_len']
         self.is_pgen = config['is_pgen'] and config['is_attention']
+        self.test_only = config['test_only']
 
         self.logger = getLogger()
         self._init_special_token()
@@ -22,7 +23,8 @@ class Dataset:
             self._from_restored()
         else:
             self._from_scratch()
-        self._info()
+        if not self.test_only:
+            self._info()
 
     def _get_preset(self):
         for prefix in ['train', 'valid', 'test']:
@@ -105,8 +107,9 @@ class Dataset:
 
     def _load_restored(self):
         self.logger.info('Loading data from restored')
+        prefixes = ['test'] if self.test_only else ['train', 'valid', 'test']
 
-        for prefix in ['train', 'valid', 'test']:
+        for prefix in prefixes:
             filename = os.path.join(self.dataset_path,
                                     f'{prefix}_raw.bin' if not self.is_pgen else f'{prefix}_extended.bin')
             data = torch.load(filename)

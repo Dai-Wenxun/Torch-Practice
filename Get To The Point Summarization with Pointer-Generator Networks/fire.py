@@ -12,8 +12,7 @@ def train(config):
     init_logger(config)
     logger = getLogger()
     logger.info(config)
-
-    train_data, valid_data, test_data = data_preparation(config)
+    test_data, train_data, valid_data = data_preparation(config)
     model = Model(config).to(config['device'])
     trainer = Trainer(config, model)
 
@@ -26,6 +25,7 @@ def train(config):
         logger.info('best valid loss: {}, best valid ppl: {}'.format(best_valid_score, best_valid_result))
         test_result = trainer.evaluate(test_data)
 
+    print(test_result)
     logger.info('test result: {}'.format(test_result))
 
 

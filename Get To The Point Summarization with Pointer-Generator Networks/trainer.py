@@ -5,6 +5,7 @@ import torch.optim as optim
 
 from time import time
 from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 from logging import getLogger
 from utils import early_stopping, ensure_dir
 from optim import ScheduledOptimizer
@@ -25,6 +26,9 @@ class Trainer:
         self.eval_step = min(config['eval_step'], self.epochs)
         self.stopping_step = config['stopping_step']
         self.grad_clip = config['grad_clip']
+        self.plot = config['plot']
+        if self.plot:
+            self.writer = SummaryWriter(log_dir='./runs/{}'.format(config['filename']))
 
         self.start_epoch = 0
         self.cur_step = 0
@@ -126,6 +130,9 @@ class Trainer:
             if self.is_logger:
                 self.logger.info(train_loss_output)
 
+            if self.plot:
+                self.writer.add_scalar('loss', train_loss, epoch_idx)
+
             if (epoch_idx + 1) % self.eval_step == 0:
                 valid_start_time = time()
                 valid_score, valid_result = self._valid_epoch(valid_data)
@@ -153,7 +160,7 @@ class Trainer:
                                    (epoch_idx - self.cur_step * self.eval_step))
                     if self.is_logger:
                         self.logger.info(stop_output)
-
+                    break
         return self.best_valid_score, self.best_valid_result
 
     @torch.no_grad()

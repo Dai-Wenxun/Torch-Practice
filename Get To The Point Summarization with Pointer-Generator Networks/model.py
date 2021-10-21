@@ -107,7 +107,7 @@ class Model(AbstractModel):
             if self.strategy == 'beam_search':
                 hypothesis = Beam_Search(
                     self.beam_size, self.sos_token_idx, self.eos_token_idx, self.unknown_token_idx,
-                    self.device, self.id2token,
+                    self.device, self.idx2token,
                     is_attention=self.is_attention, is_pgen=self.is_pgen, is_coverage=self.is_coverage
                 )
 
