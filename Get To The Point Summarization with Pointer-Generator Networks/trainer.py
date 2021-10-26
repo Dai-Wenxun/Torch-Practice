@@ -69,6 +69,7 @@ class Trainer:
             loss = self.model(data)
             total_loss += loss.item()
 
+            self._check_nan(loss)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
             self.optimizer.step()
@@ -84,6 +85,7 @@ class Trainer:
             for data in valid_data:
                 loss = self.model(data)
                 total_loss += loss.item()
+                self._check_nan(loss)
 
             valid_loss = total_loss / len(valid_data)
             ppl = np.exp(valid_loss)
@@ -110,6 +112,10 @@ class Trainer:
 
         if self.is_logger:
             self.logger.info('Checkpoint loaded. Resume training from epoch {}'.format(self.start_epoch))
+
+    def _check_nan(self, loss):
+        if torch.isnan(loss):
+            raise ValueError('Training loss is nan')
 
     def _save_generated_text(self, generated_corpus):
         with open(self.saved_text_file, 'w') as fin:
