@@ -133,3 +133,7 @@ for i in range(num_merges):
     vocab = merge_vocab(best, vocab)
     print(best)
 ```
+
+<div align=center> 
+	<img src='./images/bpe.png' width=700px>
+</div>
