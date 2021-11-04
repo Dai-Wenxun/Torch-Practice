@@ -135,5 +135,5 @@ for i in range(num_merges):
 ```
 
 <div align=center> 
-	<img src='./images/bpe.png' width=700px>
+	<img src='./images/bpe.png'>
 </div>
