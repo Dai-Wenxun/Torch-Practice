@@ -134,9 +134,15 @@ for i in range(num_merges):
     print(best)
 ```
 
+**For instance GPT has a vocabulary size of 40,478 since they have 478 base characters and chose to stop training after 40,000 merges.**
+
 <div align=center> 
 	<img src='./images/bpe.png'>
 </div>
+
+## Byte-level BPE
+
+A base vocabulary that includes all possible base characters can be quite large if e.g. all unicode characters are considered as base characters. **GPT-2 has a vocabulary size of 50,257, which corresponds to the 256 bytes base tokens, a special end-of-text token and the symbols learned with 50,000 merges.**
 
  ## Unigram language model
 
@@ -163,7 +169,7 @@ where $\mathcal{S}(X)$ is a set of segmentation candidates built from the input 
     $$
     \mathcal{L} = \sum_{s=1}^{|\mathcal{D}|}log(\sum_{\vec{x}\in \mathcal{S}(X^{(s)})} P(\vec{x}))
     $$
-    ​    where $\mathcal{|D|}$ is the size of the training corpus (or batch size).
+    ​    where $\mathcal{|D|}$ is the size of the training corpus.
 
     (2). Compute the $loss_i$ for each subword $x_i$, where $loss_i$ represents how likely the likelihood $\mathcal{L}$ is reduced when the subword $x_i$ is removed from the current vocabulary.
 
