@@ -137,3 +137,34 @@ for i in range(num_merges):
 <div align=center> 
 	<img src='./images/bpe.png'>
 </div>
+
+ ## Unigram language model
+
+The unigram language model makes an assumption that **each subword occurs independently, and consequently**, the probability of a subword sequence $\vec{x} = (x_1, . . . , x_M)$ is formulated as the product of the subword **occurrence probabilities** $p(x_i)$:
+$$
+    P(\vec{x}) = \prod_{i=1}^{M}p(x_i) \\
+    \forall x_i \in \mathcal{V}, \sum p(x_i) = 1
+$$
+
+where $\mathcal{V}$ is a pre-determined vocabulary (for instance all pre-tokenized words and the most frequent substrings in the corpus. )
+
+The most probable segmentation $\vec{x}^*$ for the input sentence $X$ is then given by
+$$
+\vec{x}^*  = \underset{\vec{x} \in \mathcal{S}(X)}{\rm{argmax}} P(\vec{x})
+$$
+
+where $\mathcal{S}(X)$ is a set of segmentation candidates built from the input sentence $X$.
+
+ **Iterative Algorithm**:
+1. Heuristically make a reasonably big seed vocabulary from the training corpus.
+2. Repeat the following steps until $|\mathcal{V}|$ reaches a desired vocabulary size.
+
+    (1). Fixing the set of vocabulary, optimize $p(x)$ with the EM algorithm.
+    $$
+    \mathcal{L} = \sum_{s=1}^{|\mathcal{D}|}log(\sum_{\vec{x}\in \mathcal{S}(X^{(s)}} P(\vec{x}))
+    $$
+    ​    where $\mathcal{|D|}$ is the size of the training corpus.
+
+    (2). Compute the $loss_i$ for each subword $x_i$, where $loss_i$ represents how likely the likelihood $\mathcal{L}$ is reduced when the subword $x_i$ is removed from the current vocabulary.
+
+    (3). Sort the symbols by $loss_i$ and keep top $η$% of subwords ($η$ is 80, for example). Note that we always **keep the subwords consisting of a single character** to avoid out-of-vocabulary.
