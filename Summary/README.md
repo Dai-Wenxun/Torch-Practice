@@ -161,9 +161,9 @@ where $\mathcal{S}(X)$ is a set of segmentation candidates built from the input 
 
     (1). Fixing the set of vocabulary, optimize $p(x)$ with the EM algorithm.
     $$
-    \mathcal{L} = \sum_{s=1}^{|\mathcal{D}|}log(\sum_{\vec{x}\in \mathcal{S}(X^{(s)}} P(\vec{x}))
+    \mathcal{L} = \sum_{s=1}^{|\mathcal{D}|}log(\sum_{\vec{x}\in \mathcal{S}(X^{(s)})} P(\vec{x}))
     $$
-    ​    where $\mathcal{|D|}$ is the size of the training corpus.
+    ​    where $\mathcal{|D|}$ is the size of the training corpus (or batch size).
 
     (2). Compute the $loss_i$ for each subword $x_i$, where $loss_i$ represents how likely the likelihood $\mathcal{L}$ is reduced when the subword $x_i$ is removed from the current vocabulary.
 
