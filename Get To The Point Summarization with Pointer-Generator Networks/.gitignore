@@ -1,6 +1,4 @@
-/saved
-/log
-/generated
 /data
 /dataset
-__pycache__
+/log
+/generated
