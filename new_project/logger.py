@@ -3,37 +3,21 @@ import logging
 
 
 def init_logger(args):
-    dir_name = './log/'
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
-    logfilepath = os.path.join(dir_name, f'{args.task_name}.log')
+    filepath = os.path.join(args.output_dir, 'out.log')
 
-    filefmt = "%(asctime)-15s %(levelname)s %(message)s"
-    filedatefmt = "%d %b %Y %H:%M:%S"
-    fileformatter = logging.Formatter(filefmt, filedatefmt)
+    fmt = "%(asctime)s %(levelname)s %(message)s"
+    date_fmt = "%d %b %H:%M:%S"
+    formatter = logging.Formatter(fmt, date_fmt)
 
-    sfmt = "%(asctime)-15s %(levelname)s %(message)s"
-    sdatefmt = "%d %b %H:%M:%S"
-    sformatter = logging.Formatter(sfmt, sdatefmt)
-    if args.state is None or args.state.lower() == 'info':
-        level = logging.INFO
-    elif args.state.lower() == 'debug':
-        level = logging.DEBUG
-    elif args.state.lower() == 'error':
-        level = logging.ERROR
-    elif args.state.lower() == 'warning':
-        level = logging.WARNING
-    elif args.state.lower() == 'critical':
-        level = logging.CRITICAL
-    else:
-        level = logging.INFO
-    fh = logging.FileHandler(logfilepath)
-    fh.setLevel(level)
-    fh.setFormatter(fileformatter)
+    fh = logging.FileHandler(filepath)
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
 
     sh = logging.StreamHandler()
-    sh.setLevel(level)
-    sh.setFormatter(sformatter)
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(formatter)
 
-    logging.basicConfig(level=level, handlers=[fh, sh])
+    logging.basicConfig(level=logging.INFO, handlers=[fh, sh])
