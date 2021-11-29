@@ -4,7 +4,7 @@ import argparse
 from logging import getLogger
 
 from logger import init_logger
-from tasks import load_examples, PROCESSORS, TRAIN_SET, DEV_SET, TEST_SET, METRICS, DEFAULT_METRICS
+from tasks import load_examples, PROCESSORS, TRAIN_SET, DEV_SET, METRICS, DEFAULT_METRICS
 from trainer import Trainer
 from utils import beautify
 
@@ -28,8 +28,6 @@ def main():
                         help="The total number of train examples to use, where -1 equals all examples.")
     parser.add_argument("--dev_examples", default=-1, type=int,
                         help="The total number of dev examples to use, where -1 equals all examples.")
-    parser.add_argument("--test_examples", default=-1, type=int,
-                        help="The total number of test examples to use, where -1 equals all examples")
 
     # training & evaluation parameters
     parser.add_argument("--per_gpu_train_batch_size", default=4, type=int,
@@ -44,6 +42,8 @@ def main():
                         help="If > 0: Override num_train_epochs.")
     parser.add_argument('--logging_steps', type=int, default=50,
                         help="Log every X updates steps.")
+    parser.add_argument('--repetitions', default=3, type=int,
+                        help="The number of times to repeat training and testing with different seeds.")
     parser.add_argument("--warmup_steps", default=0, type=int,
                         help="Linear warmup over warmup_steps.")
     parser.add_argument("--learning_rate", default=1e-5, type=float,
@@ -54,15 +54,11 @@ def main():
                         help="Epsilon for Adam optimizer.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float,
                         help="Max gradient norm.")
-    parser.add_argument('--do_train', action='store_true',
-                        help="Whether to perform training")
-    parser.add_argument('--do_eval', action='store_true',
-                        help="Whether to perform evaluation")
     parser.add_argument("--temperature", default=2, type=float,
                         help="")
 
     # Other optional parameters
-    parser.add_argument('--seed', type=int, default=42,
+    parser.add_argument('--seed', type=list, default=[42, 84, 126],
                         help="random seed for initialization")
     parser.add_argument('--overwrite_output_dir', action='store_true',
                         help="Overwrite the content of the output directory")
@@ -91,18 +87,21 @@ def main():
         args.task_name, args.data_dir, TRAIN_SET, num_examples=args.train_examples)
     eval_data = load_examples(
         args.task_name, args.data_dir, DEV_SET, num_examples=args.dev_examples)
-    test_data = load_examples(
-        args.task_name, args.data_dir, TEST_SET, num_examples=args.test_examples)
 
     args.metrics = METRICS.get(args.task_name, DEFAULT_METRICS)
 
     trainer = Trainer(args)
 
-    results = trainer.train_single_model(train_data, eval_data)
+    results = trainer.train(train_data, eval_data)
 
-    logger.info(results)
+    avg_scores = {metric: 0. for metric in args.metrics}
+    for rp in range(args.repetitions):
+        for metric in args.metrics:
+            avg_scores[metric] += results[rp][f'Rp_{rp}_scores'][metric] / float(args.repetitions)
+
+    logger.info([f"avg_{metric}': {round(avg_scores[metric], 3)}" for metric in args.metrics])
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     main()
