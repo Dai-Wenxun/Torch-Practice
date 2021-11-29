@@ -172,6 +172,39 @@ class MrpcProcessor(DataProcessor):
         return examples
 
 
+class Sst2Processor(DataProcessor):
+    """Processor for the SST-2 data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_test_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training, dev and test sets."""
+        examples = []
+        text_index = 1 if set_type == "test" else 0
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = f"{set_type}-{i}"
+            text_a = line[text_index]
+            label = None if set_type == "test" else line[1]
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
+
 class RteProcessor(DataProcessor):
     """Processor for the RTE data set (GLUE version)."""
 
@@ -205,11 +238,12 @@ class RteProcessor(DataProcessor):
         return examples
 
 
+
 TASK_NUM_LABELS = {
     "cola": 2,
     # "mnli": 3,
     "mrpc": 2,
-    # "sst-2": 2,
+    "sst-2": 2,
     # "sts-b": 1,
     # "qqp": 2,
     # "qnli": 2,
@@ -222,7 +256,7 @@ OUTPUT_MODES = {
     # "mnli": "classification",
     # "mnli-mm": "classification",
     "mrpc": "classification",
-    # "sst-2": "classification",
+    "sst-2": "classification",
     # "sts-b": "regression",
     # "qqp": "classification",
     # "qnli": "classification",
@@ -235,7 +269,7 @@ PROCESSORS = {
     # "mnli": MnliProcessor,
     # "mnli-mm": MnliMismatchedProcessor,
     "mrpc": MrpcProcessor,
-    # "sst-2": Sst2Processor,
+    "sst-2": Sst2Processor,
     # "sts-b": StsbProcessor,
     # "qqp": QqpProcessor,
     # "qnli": QnliProcessor,

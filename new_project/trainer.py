@@ -79,8 +79,7 @@ class Trainer:
                     self.model.train()
                     batch = {k: t.to(self.args.device) for k, t in batch.items()}
                     outputs = self.model(**batch)
-
-                    loss = outputs.loss
+                    loss = outputs[0]
 
                     if self.args.n_gpu > 1:
                         loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -148,7 +147,7 @@ class Trainer:
             labels = batch['labels']
             with torch.no_grad():
                 outputs = self.model(**batch)
-                logits = outputs.logits
+                logits = outputs[1]
 
             if preds is None:
                 preds = logits.detach().cpu().numpy()

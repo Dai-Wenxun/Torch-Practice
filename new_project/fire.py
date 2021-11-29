@@ -30,9 +30,9 @@ def main():
                         help="The total number of dev examples to use, where -1 equals all examples.")
 
     # training & evaluation parameters
-    parser.add_argument("--per_gpu_train_batch_size", default=4, type=int,
+    parser.add_argument("--per_gpu_train_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for training.")
-    parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
+    parser.add_argument("--per_gpu_eval_batch_size", default=16, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_train_epochs", default=3, type=float,
                         help="Total number of training epochs.")
@@ -42,7 +42,7 @@ def main():
                         help="If > 0: Override num_train_epochs.")
     parser.add_argument('--logging_steps', type=int, default=50,
                         help="Log every X updates steps.")
-    parser.add_argument('--stopping_steps', type=int, default=5,
+    parser.add_argument('--stopping_steps', type=int, default=10,
                         help="Early stopping steps")
     parser.add_argument('--repetitions', default=3, type=int,
                         help="The number of times to repeat training and testing with different seeds.")
@@ -107,4 +107,5 @@ def main():
 
 
 if __name__ == '__main__':
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
     main()
