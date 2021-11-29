@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, matthews_corrcoef, f1_score
 
 
 from tasks import InputFeatures, DictDataset, PROCESSORS, OUTPUT_MODES
-from utils import set_seed
+from utils import set_seed, early_stopping
 
 logger = getLogger()
 
@@ -62,9 +62,15 @@ class Trainer:
             if self.args.n_gpu > 1 and not isinstance(self.model, torch.nn.DataParallel):
                 self.model = torch.nn.DataParallel(self.model)
 
-            step = 0
+            grad_step = 0
             global_step = 0
             tr_loss, logging_loss = 0.0, 0.0
+            final_res = {}
+
+            best_score = 0.0
+            stopping_step = 0
+            stop_flag, update_flag = False, False
+
             self.model.zero_grad()
 
             for epoch in range(self.args.num_train_epochs):
@@ -84,7 +90,7 @@ class Trainer:
                     loss.backward()
 
                     tr_loss += loss.item()
-                    if (step + 1) % self.args.gradient_accumulation_steps == 0:
+                    if (grad_step + 1) % self.args.gradient_accumulation_steps == 0:
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.max_grad_norm)
                         optimizer.step()
                         scheduler.step()
@@ -100,14 +106,22 @@ class Trainer:
                             logging_loss = tr_loss
                             logger.info(json.dumps(logs))
 
-                    if 0 < self.args.max_steps <= global_step:
-                        final_res = {'global_step': global_step,
-                                     f'Rp_{repetition}_scores': self.eval(eval_data)['scores']}
-                        logger.info(final_res)
-                        results.append(final_res)
-                        epoch_iterator.close()
-                        break
-                    step += 1
+                            best_score, stopping_step, stop_flag, update_flag = early_stopping(
+                                logs['scores']['acc'], best_score, stopping_step, max_step=self.args.stopping_steps)
+
+                            if update_flag:
+                                final_res = {'global_step': global_step,
+                                             f'Rp_{repetition}_scores': logs['scores']}
+                                self._save()
+
+                            if stop_flag or 0 < self.args.max_steps <= global_step:
+                                logger.info(final_res)
+                                results.append(final_res)
+                                epoch_iterator.close()
+                                break
+                    grad_step += 1
+                if stop_flag or 0 < self.args.max_steps <= global_step:
+                    break
 
             self._clear_model()
 

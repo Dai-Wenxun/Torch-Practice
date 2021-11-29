@@ -26,6 +26,7 @@ def beautify(args):
     args_info += f"{'gradient_accumulation_steps'}={args.gradient_accumulation_steps}\n"
     args_info += f"{'max_steps'}={args.max_steps}\n"
     args_info += f"{'logging_steps'}={args.logging_steps}\n"
+    args_info += f"{'stopping_steps'}={args.stopping_steps}\n"
     args_info += f"{'repetitions'}={args.repetitions}\n"
     args_info += f"{'warmup_steps'}={args.warmup_steps}\n"
     args_info += f"{'learning_rate'}={args.learning_rate}\n"
@@ -35,3 +36,18 @@ def beautify(args):
     args_info += f"{'temperature'}={args.temperature}\n"
 
     return args_info
+
+
+def early_stopping(value, best, cur_step, max_step):
+    stop_flag = False
+    update_flag = False
+
+    if value > best:
+        cur_step = 0
+        best = value
+        update_flag = True
+    else:
+        cur_step += 1
+        if cur_step > max_step:
+            stop_flag = True
+    return best, cur_step, stop_flag, update_flag

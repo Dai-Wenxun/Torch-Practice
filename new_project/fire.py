@@ -42,6 +42,8 @@ def main():
                         help="If > 0: Override num_train_epochs.")
     parser.add_argument('--logging_steps', type=int, default=50,
                         help="Log every X updates steps.")
+    parser.add_argument('--stopping_steps', type=int, default=5,
+                        help="Early stopping steps")
     parser.add_argument('--repetitions', default=3, type=int,
                         help="The number of times to repeat training and testing with different seeds.")
     parser.add_argument("--warmup_steps", default=0, type=int,
@@ -94,6 +96,8 @@ def main():
 
     results = trainer.train(train_data, eval_data)
 
+    logger.info(results)
+
     avg_scores = {metric: 0. for metric in args.metrics}
     for rp in range(args.repetitions):
         for metric in args.metrics:
@@ -103,5 +107,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     main()
