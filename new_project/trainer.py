@@ -9,140 +9,113 @@ from typing import List, Dict, Union
 from torch.utils.data import RandomSampler, SequentialSampler, DataLoader
 from transformers import InputExample, AdamW, get_linear_schedule_with_warmup, \
     BertForSequenceClassification, BertTokenizer
-from sklearn.metrics import accuracy_score, matthews_corrcoef
+from sklearn.metrics import accuracy_score, matthews_corrcoef, f1_score
 
 
-from tasks import InputFeatures, DictDataset
-from tasks import PROCESSORS, OUTPUT_MODES
+from tasks import InputFeatures, DictDataset, PROCESSORS, OUTPUT_MODES
+from utils import set_seed
 
-logger = getLogger('root')
+logger = getLogger()
 
 
 class Trainer:
     def __init__(self, args):
         self.args = args
-        self.model = BertForSequenceClassification.from_pretrained(
-            self.args.model_name_or_path, num_labels=len(self.args.label_list)).to(args.device)
+        self.model = None
         self.tokenizer = BertTokenizer.from_pretrained(self.args.model_name_or_path)
 
-    def train_single_model(self, train_data: List[InputExample], eval_data: List[InputExample]) -> dict:
-        results_dict = {}
-        self.model.to(self.args.device)
+    def train(self, train_data: List[InputExample], eval_data: List[InputExample]) -> List:
 
-        results_dict['before_training_acc'] = self.evaluate(eval_data)['scores']
-        global_step, tr_loss = self._train(train_data)
-        results_dict['global_step'] = global_step
-        results_dict['average_loss'] = tr_loss
-        results_dict['after_training_acc'] = self.evaluate(eval_data)['scores']
+        results = []
+        for repetition in range(self.args.repetitions):
+            self._init_model()
+            self.model.to(self.args.device)
+            set_seed(self.args.seed[repetition])
+            logger.info(f'Repetition: {repetition} Seed: {self.args.seed[repetition]}')
 
-        self._save()
+            train_batch_size = self.args.per_gpu_train_batch_size * max(1, self.args.n_gpu)
+            train_dataset = self._generate_dataset(train_data)
+            train_sampler = RandomSampler(train_dataset)
+            train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
 
-        return results_dict
-
-    def evaluate(self, eval_data: List[InputExample]) -> dict:
-        self.model.to(self.args.device)
-
-        results = self._eval(eval_data)
-
-        predictions = np.argmax(results['logits'], axis=1)
-        scores = {}
-
-        for metric in self.args.metrics:
-            if metric == 'acc':
-                scores[metric] = accuracy_score(results['labels'], predictions)
-            elif metric == 'mathws':
-                scores[metric] = matthews_corrcoef(results['labels'], predictions)
+            if self.args.max_steps > 0:
+                t_total = self.args.max_steps
+                self.args.num_train_epochs = self.args.max_steps // \
+                                    (max(1, len(train_dataloader) // self.args.gradient_accumulation_steps)) + 1
             else:
-                raise ValueError(f"Metric '{metric}' not implemented")
+                t_total = len(train_dataloader) // self.args.gradient_accumulation_steps * self.args.num_train_epochs
 
-        results['scores'] = scores
-        results['predictions'] = predictions
+            # Prepare optimizer and schedule (linear warmup and decay)
+            no_decay = ['bias', 'LayerNorm.weight']
+            optimizer_grouped_parameters = [
+                {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+                 'weight_decay': self.args.weight_decay},
+                {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+                 'weight_decay': 0.0}
+            ]
+
+            optimizer = AdamW(optimizer_grouped_parameters, lr=self.args.learning_rate, eps=self.args.adam_epsilon)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.args.warmup_steps,
+                                                        num_training_steps=t_total)
+
+            # multi-gpu training
+            if self.args.n_gpu > 1 and not isinstance(self.model, torch.nn.DataParallel):
+                self.model = torch.nn.DataParallel(self.model)
+
+            step = 0
+            global_step = 0
+            tr_loss, logging_loss = 0.0, 0.0
+            self.model.zero_grad()
+
+            for epoch in range(self.args.num_train_epochs):
+                epoch_iterator = tqdm(train_dataloader, desc=f"Epoch:{epoch}:Iteration")
+                for _, batch in enumerate(epoch_iterator):
+                    self.model.train()
+                    batch = {k: t.to(self.args.device) for k, t in batch.items()}
+                    outputs = self.model(**batch)
+
+                    loss = outputs.loss
+
+                    if self.args.n_gpu > 1:
+                        loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                    if self.args.gradient_accumulation_steps > 1:
+                        loss = loss / self.args.gradient_accumulation_steps
+
+                    loss.backward()
+
+                    tr_loss += loss.item()
+                    if (step + 1) % self.args.gradient_accumulation_steps == 0:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.max_grad_norm)
+                        optimizer.step()
+                        scheduler.step()
+                        self.model.zero_grad()
+                        global_step += 1
+
+                        if self.args.logging_steps > 0 and global_step % self.args.logging_steps == 0:
+                            logs = {}
+                            loss_scalar = (tr_loss - logging_loss) / self.args.logging_steps
+                            logs['step'] = global_step
+                            logs['loss'] = loss_scalar
+                            logs['scores'] = self.eval(eval_data)['scores']
+                            logging_loss = tr_loss
+                            logger.info(json.dumps(logs))
+
+                    if 0 < self.args.max_steps <= global_step:
+                        final_res = {'global_step': global_step,
+                                     f'Rp_{repetition}_scores': self.eval(eval_data)['scores']}
+                        logger.info(final_res)
+                        results.append(final_res)
+                        epoch_iterator.close()
+                        break
+                    step += 1
+
+            self._clear_model()
+
         return results
 
-    def _save(self) -> None:
-        saved_path = os.path.join(self.args.output_dir, 'model')
-        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-        model_to_save.save_pretrained(saved_path)
-        self.tokenizer.save_pretrained(saved_path)
-        logger.info(f"Model saved at {saved_path}")
+    def eval(self, eval_data: List[InputExample]) -> Dict:
+        self.model.to(self.args.device)
 
-    def _train(self, train_data: List[InputExample]):
-        train_batch_size = self.args.per_gpu_train_batch_size * max(1, self.args.n_gpu)
-        train_dataset = self._generate_dataset(train_data)
-        train_sampler = RandomSampler(train_dataset)
-        train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
-
-        if self.args.max_steps > 0:
-            t_total = self.args.max_steps
-            self.args.num_train_epochs = self.args.max_steps // \
-                                (max(1, len(train_dataloader) // self.args.gradient_accumulation_steps)) + 1
-        else:
-            t_total = len(train_dataloader) // self.args.gradient_accumulation_steps * self.args.num_train_epochs
-
-        # Prepare optimizer and schedule (linear warmup and decay)
-        no_decay = ['bias', 'LayerNorm.weight']
-        optimizer_grouped_parameters = [
-            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
-             'weight_decay': self.args.weight_decay},
-            {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
-             'weight_decay': 0.0}
-        ]
-
-        optimizer = AdamW(optimizer_grouped_parameters, lr=self.args.learning_rate, eps=self.args.adam_epsilon)
-        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.args.warmup_steps,
-                                                    num_training_steps=t_total)
-
-        # multi-gpu training
-        if self.args.n_gpu > 1 and not isinstance(self.model, torch.nn.DataParallel):
-            self.model = torch.nn.DataParallel(self.model)
-
-        step = 0
-        global_step = 0
-        tr_loss, logging_loss = 0.0, 0.0
-        self.model.zero_grad()
-
-        for epoch in range(self.args.num_train_epochs):
-            epoch_iterator = tqdm(train_dataloader, desc=f"Epoch:{epoch}:Iteration")
-            for _, batch in enumerate(epoch_iterator):
-                self.model.train()
-                batch = {k: t.to(self.args.device) for k, t in batch.items()}
-                outputs = self.model(**batch)
-
-                loss = outputs[0]
-
-                if self.args.n_gpu > 1:
-                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                if self.args.gradient_accumulation_steps > 1:
-                    loss = loss / self.args.gradient_accumulation_steps
-
-                loss.backward()
-
-                tr_loss += loss.item()
-                if (step + 1) % self.args.gradient_accumulation_steps == 0:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.max_grad_norm)
-                    optimizer.step()
-                    scheduler.step()
-                    self.model.zero_grad()
-                    global_step += 1
-
-                    if self.args.logging_steps > 0 and global_step % self.args.logging_steps == 0:
-                        logs = {}
-                        loss_scalar = (tr_loss - logging_loss) / self.args.logging_steps
-                        learning_rate_scalar = scheduler.get_lr()[0]
-                        logs['learning_rate'] = learning_rate_scalar
-                        logs['loss'] = loss_scalar
-                        logging_loss = tr_loss
-
-                        logger.info(json.dumps({**{'step': global_step}, **logs}))
-
-                if 0 < self.args.max_steps < global_step:
-                    epoch_iterator.close()
-                    break
-                step += 1
-
-        return global_step, (tr_loss / global_step if global_step > 0 else -1)
-
-    def _eval(self, eval_data: List[InputExample]) -> Dict:
         eval_dataset = self._generate_dataset(eval_data)
         eval_batch_size = self.args.per_gpu_eval_batch_size * max(1, self.args.n_gpu)
         eval_sampler = SequentialSampler(eval_dataset)
@@ -151,6 +124,7 @@ class Trainer:
         if self.args.n_gpu > 1 and not isinstance(self.model, torch.nn.DataParallel):
             self.model = torch.nn.DataParallel(self.model)
 
+        results = {}
         preds, out_label_ids = None, None
 
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
@@ -169,10 +143,38 @@ class Trainer:
                 preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
                 out_label_ids = np.append(out_label_ids, labels.detach().cpu().numpy(), axis=0)
 
-        return {
-            'logits': preds,
-            'labels': out_label_ids,
-        }
+        results['logits'] = preds
+        results['labels'] = out_label_ids
+        results['predictions'] = np.argmax(results['logits'], axis=1)
+
+        scores = {}
+        for metric in self.args.metrics:
+            if metric == 'acc':
+                scores[metric] = accuracy_score(results['labels'], results['predictions'])
+            elif metric == 'mathws':
+                scores[metric] = matthews_corrcoef(results['labels'], results['predictions'])
+            elif metric == 'f1':
+                scores[metric] = f1_score(results['labels'], results['predictions'])
+            else:
+                raise ValueError(f"Metric '{metric}' not implemented")
+        results['scores'] = scores
+
+        return results
+
+    def _save(self) -> None:
+        saved_path = os.path.join(self.args.output_dir, 'model')
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        model_to_save.save_pretrained(saved_path)
+        self.tokenizer.save_pretrained(saved_path)
+        logger.info(f"Model saved at {saved_path}")
+
+    def _init_model(self):
+        self.model = BertForSequenceClassification.from_pretrained(
+            self.args.model_name_or_path, num_labels=len(self.args.label_list)).to(self.args.device)
+
+    def _clear_model(self):
+        self.model = None
+        torch.cuda.empty_cache()
 
     def _generate_dataset(self, data: List[InputExample]):
         features = self._convert_examples_to_features(data)
