@@ -10,7 +10,7 @@ from torch.utils.data import RandomSampler, SequentialSampler, DataLoader
 from transformers import InputExample, AdamW, get_linear_schedule_with_warmup, \
     BertForSequenceClassification, BertTokenizer
 from sklearn.metrics import accuracy_score, matthews_corrcoef, f1_score
-
+from scipy.stats import spearmanr, pearsonr
 
 from tasks import InputFeatures, DictDataset, PROCESSORS, OUTPUT_MODES
 from utils import set_seed, early_stopping
@@ -25,7 +25,6 @@ class Trainer:
         self.tokenizer = BertTokenizer.from_pretrained(self.args.model_name_or_path)
 
     def train(self, train_data: List[InputExample], eval_data: List[InputExample]) -> List:
-
         results = []
         for repetition in range(self.args.repetitions):
             self._init_model()
@@ -67,7 +66,7 @@ class Trainer:
             tr_loss, logging_loss = 0.0, 0.0
             final_res = {}
 
-            best_score = 0.0
+            best_score = -1.0
             stopping_step = 0
             stop_flag, update_flag = False, False
 
@@ -106,7 +105,7 @@ class Trainer:
                             logger.info(json.dumps(logs))
 
                             best_score, stopping_step, stop_flag, update_flag = early_stopping(
-                                logs['scores']['acc'], best_score, stopping_step, max_step=self.args.stopping_steps)
+                                logs['scores'][self.args.metrics[0]], best_score, stopping_step, max_step=self.args.stopping_steps)
 
                             if update_flag:
                                 final_res = {'global_step': global_step,
@@ -144,10 +143,10 @@ class Trainer:
             self.model.eval()
 
             batch = {k: t.to(self.args.device) for k, t in batch.items()}
-            labels = batch['labels']
+            labels = batch.pop('labels')
             with torch.no_grad():
                 outputs = self.model(**batch)
-                logits = outputs[1]
+                logits = outputs[0]
 
             if preds is None:
                 preds = logits.detach().cpu().numpy()
@@ -168,6 +167,10 @@ class Trainer:
                 scores[metric] = matthews_corrcoef(results['labels'], results['predictions'])
             elif metric == 'f1':
                 scores[metric] = f1_score(results['labels'], results['predictions'])
+            elif metric == 'prson':
+                scores[metric] = pearsonr(results['labels'], results['logits'].reshape(-1))[0]
+            elif metric == 'sprman':
+                scores[metric] = spearmanr(results['labels'], results['logits'].reshape(-1))[0]
             else:
                 raise ValueError(f"Metric '{metric}' not implemented")
         results['scores'] = scores
@@ -197,6 +200,7 @@ class Trainer:
             'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long),
             'labels': torch.tensor([f.label for f in features]),  # might be float
         }
+
         return DictDataset(**feature_dict)
 
     def _convert_examples_to_features(self, examples: List[InputExample]) -> List[InputFeatures]:
@@ -206,9 +210,9 @@ class Trainer:
 
         label_map = {label: i for i, label in enumerate(label_list)}
 
-        def label_from_example(example: InputExample) -> Union[int, float]:
+        def label_from_example(example: InputExample) -> Union[int, float, None]:
             if example.label is None:
-                return -100
+                return 100
             if output_mode == "classification":
                 return label_map[example.label]
             elif output_mode == "regression":
