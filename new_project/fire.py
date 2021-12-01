@@ -107,5 +107,5 @@ def main():
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
     main()
