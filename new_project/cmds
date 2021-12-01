@@ -1,0 +1,10 @@
+bash run.sh ./model/bert-base-uncased cola 0
+bash run.sh ./model/bert-base-uncased mnli 1
+bash run.sh ./model/bert-base-uncased mnli-mm 2
+bash run.sh ./model/bert-base-uncased mrpc 3
+bash run.sh ./model/bert-base-uncased sst-2 0
+bash run.sh ./model/bert-base-uncased sts-b 1
+bash run.sh ./model/bert-base-uncased qqp 2
+bash run.sh ./model/bert-base-uncased qnli 3
+bash run.sh ./model/bert-base-uncased rte 0
+bash run.sh ./model/bert-base-uncased wnli 1
