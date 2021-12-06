@@ -5,14 +5,17 @@ from logging import getLogger
 
 from logger import init_logger
 from tasks import load_examples, PROCESSORS, TRAIN_SET, DEV_SET, METRICS, DEFAULT_METRICS
-from trainer import Trainer
-from utils import beautify
+from trainer import Trainer, METHODS
+from utils import beautify, get_local_time
+from modeling import train_single_model
 
 
 def main():
     parser = argparse.ArgumentParser()
 
     # required parameters
+    parser.add_argument("--method", required=True, choices=METHODS,
+                        help="The training method to use.")
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the data files for the task.")
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
@@ -20,14 +23,16 @@ def main():
     parser.add_argument("--task_name", default=None, type=str, required=True, choices=PROCESSORS.keys(),
                         help="The name of the task to train/evaluate on")
     parser.add_argument("--max_length", default=None, type=int, required=True,
-                        help="The maximum total input sequence length after tokenization. Sequences longebr "
+                        help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
+    parser.add_argument("--do_adaptation", action='store_true',
+                        help='Whether performed domain adaptation')
 
     # dataset parameters
-    parser.add_argument("--train_examples", default=-1, type=int,
-                        help="The total number of train examples to use, where -1 equals all examples.")
-    parser.add_argument("--dev_examples", default=-1, type=int,
-                        help="The total number of dev examples to use, where -1 equals all examples.")
+    parser.add_argument("--train_examples", default=0.1, type=float,
+                        help="<= 1 means the ratio to total train examples, > 1 means the number of train examples.")
+    parser.add_argument("--dev_examples", default=1.0, type=float,
+                        help="<= 1 means the ratio to total train examples, > 1 means the number of train examples.")
 
     # training & evaluation parameters
     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int,
@@ -56,56 +61,45 @@ def main():
                         help="Epsilon for Adam optimizer.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float,
                         help="Max gradient norm.")
-    parser.add_argument("--temperature", default=2, type=float,
-                        help="")
-
-    # Other optional parameters
     parser.add_argument('--seed', type=list, default=[42, 84, 126],
                         help="random seed for initialization")
-    parser.add_argument('--overwrite_output_dir', action='store_true',
-                        help="Overwrite the content of the output directory")
 
     args = parser.parse_args()
-    args.output_dir = os.path.join('./output', args.task_name, args.model_name_or_path.split('/')[-1])
+
+    if args.do_adaptation:
+        args.output_dir = os.path.join(*args.model_name_or_path.split('/')[:-1], args.method)
+    else:
+        args.output_dir = os.path.join('./output', args.task_name, args.method, args.model_name_or_path.split('/')[-1])
 
     # Init logger
-    init_logger(args)
+    init_logger(args.output_dir)
     logger = getLogger()
-    logger.info("Parameters: {}".format(beautify(args)))
-
-    # Setup CUDA, GPU & distributed training
-    args.device = "cuda" if torch.cuda.is_available() else "cpu"
-    args.n_gpu = torch.cuda.device_count()
 
     # Prepare task
-    args.task_name = args.task_name.lower()
-    if args.task_name not in PROCESSORS:
-        raise ValueError("Task '{}' not found".format(args.task_name))
-
     processor = PROCESSORS[args.task_name]()
-    args.label_list = processor.get_labels()
-
     train_data = load_examples(
         args.task_name, args.data_dir, TRAIN_SET, num_examples=args.train_examples)
     eval_data = load_examples(
         args.task_name, args.data_dir, DEV_SET, num_examples=args.dev_examples)
 
+    # Parameters addition
+    args.label_list = processor.get_labels()
     args.metrics = METRICS.get(args.task_name, DEFAULT_METRICS)
+    args.device = "cuda" if torch.cuda.is_available() else "cpu"
+    args.n_gpu = torch.cuda.device_count()
+
+    if args.method.endswith('mlm'):
+        args.train_type = 'mlm_type'
+    else:
+        args.train_type = 'seq_cls_type'
+
+    logger.info("Parameters: {}".format(beautify(args)))
 
     trainer = Trainer(args)
 
-    results = trainer.train(train_data, eval_data)
-
-    logger.info(results)
-
-    avg_scores = {metric: 0. for metric in args.metrics}
-    for rp in range(args.repetitions):
-        for metric in args.metrics:
-            avg_scores[metric] += results[rp][f'Rp_{rp}_scores'][metric] / float(args.repetitions)
-
-    logger.info([f"avg_{metric}': {round(avg_scores[metric], 3)}" for metric in args.metrics])
+    train_single_model(trainer, train_data, eval_data=eval_data)
 
 
 if __name__ == '__main__':
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     main()
