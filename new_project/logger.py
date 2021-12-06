@@ -2,11 +2,11 @@ import os
 import logging
 
 
-def init_logger(args):
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+def init_logger(output_dir):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    filepath = os.path.join(args.output_dir, 'out.log')
+    filepath = os.path.join(output_dir, 'out.log')
 
     fmt = "%(asctime)s %(levelname)s %(message)s"
     date_fmt = "%d %b %H:%M:%S"
