@@ -1,7 +1,7 @@
 
 from tasks import load_examples
 
-examples = load_examples('sst-2', './data/sst-2', 'train', -1)
+examples = load_examples('rte', './data/rte', 'train', -1)
 
 
 from transformers import BertTokenizer
