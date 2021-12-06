@@ -14,11 +14,12 @@ logger = getLogger()
 
 
 class InputExample:
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, text_a, text_b=None, label=None, logits=None):
         self.guid = guid
         self.text_a = text_a
         self.text_b = text_b
         self.label = label
+        self.logits = logits
 
     def __repr__(self):
         return str(self.to_json_string())
@@ -34,11 +35,12 @@ class InputExample:
 
 
 class InputFeatures:
-    def __init__(self, input_ids, attention_mask, token_type_ids, label):
+    def __init__(self, input_ids, attention_mask, token_type_ids, label=None, logits=None):
         self.input_ids = input_ids
         self.attention_mask = attention_mask
         self.token_type_ids = token_type_ids
         self.label = label
+        self.logits = logits
 
     def __repr__(self):
         return str(self.to_json_string())
@@ -460,10 +462,10 @@ PROCESSORS = {
 }
 
 METRICS = {
-    "cola": ["acc", "mathws"],
-    "mrpc": ["acc", 'f1'],
+    "cola": ["mathws", "acc"],
+    "mrpc": ['f1', "acc"],
     "sts-b": ["prson", "sprman"],
-    "qqp": ["acc", 'f1']
+    "qqp": ['f1', "acc"]
 }
 
 DEFAULT_METRICS = ["acc"]
@@ -476,7 +478,7 @@ TEST_SET = "test"
 SET_TYPES = [TRAIN_SET, DEV_SET, TEST_SET]
 
 
-def load_examples(task, data_dir: str, set_type: str, num_examples: int, seed: int = 42) -> List[InputExample]:
+def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = 42) -> List[InputExample]:
     processor = PROCESSORS[task]()
 
     if set_type == DEV_SET:
@@ -496,8 +498,11 @@ def load_examples(task, data_dir: str, set_type: str, num_examples: int, seed: i
     return examples
 
 
-def _shuffle_and_restrict(examples: List[InputExample], num_examples: int, seed: int = 42) -> List[InputExample]:
-    if 0 < num_examples < len(examples):
+def _shuffle_and_restrict(examples: List[InputExample], num_examples: float, seed: int = 42) -> List[InputExample]:
+    if 0 < num_examples <= 1.0:
         random.Random(seed).shuffle(examples)
-        examples = examples[:num_examples]
+        examples = examples[:int(num_examples * len(examples))]
+    elif 1 < num_examples < len(examples):
+        random.Random(seed).shuffle(examples)
+        examples = examples[:int(num_examples)]
     return examples
