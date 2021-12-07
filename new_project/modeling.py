@@ -24,7 +24,7 @@ def train_single_model(trainer: Trainer, train_data: List[InputExample], eval_da
     avg_scores = {metric: 0. for metric in args.metrics}
     for rp in range(args.repetitions):
         for metric in args.metrics:
-            avg_scores[metric] += results[rp][f'Rp_{rp}_scores'][metric] / float(args.repetitions)
+            avg_scores[metric] += results[rp]['scores'][metric] / float(args.repetitions)
 
     logger.info([f"avg_{metric}': {round(avg_scores[metric], 3)}" for metric in args.metrics])
 

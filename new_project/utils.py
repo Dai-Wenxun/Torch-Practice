@@ -28,6 +28,7 @@ def beautify(args):
     args_info += f"model_name_or_path={args.model_name_or_path}\n"
     args_info += f"task_name={args.task_name}\n"
     args_info += f"max_length={args.max_length}\n"
+    args_info += f"do_adaptation={args.do_adaptation}\n"
     args_info += f"train_examples={args.train_examples}\n"
     args_info += f"dev_examples={args.dev_examples}\n"
     args_info += f"per_gpu_train_batch_size={args.per_gpu_train_batch_size}\n"

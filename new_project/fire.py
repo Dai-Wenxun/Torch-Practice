@@ -6,7 +6,7 @@ from logging import getLogger
 from logger import init_logger
 from tasks import load_examples, PROCESSORS, TRAIN_SET, DEV_SET, METRICS, DEFAULT_METRICS
 from trainer import Trainer, METHODS
-from utils import beautify, get_local_time
+from utils import beautify
 from modeling import train_single_model
 
 
@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--max_length", default=None, type=int, required=True,
                         help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
-    parser.add_argument("--do_adaptation", action='store_true',
+    parser.add_argument("--do_adaptation", default=False, type=bool,
                         help='Whether performed domain adaptation')
 
     # dataset parameters
@@ -101,5 +101,5 @@ def main():
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
     main()

@@ -3,18 +3,18 @@ MODEL_NAME_OR_PATH=$2
 TASK=$3
 device=$4
 TRAIN_EXAMPLES=$5
+DO_ADAPT=$6
 
 DATA_ROOT='data/'
 SEQ_LENGTH=256
 TRAIN_BATCH_SIZE=8
 EVAL_BATCH_SIZE=16
-TRAIN_EXAMPLES=1.0
 ACCU=1
 
 if [ $TASK = "cola" ]; then
   DATA_DIR=${DATA_ROOT}cola
   SEQ_LENGTH=64
-  MAX_STEPS=5000
+  MAX_STEPS=2000
 elif [ $TASK = "mnli" ] || [ $TASK = "mnli-mm" ]; then
   DATA_DIR=${DATA_ROOT}mnli
   SEQ_LENGTH=256
@@ -61,4 +61,4 @@ CUDA_VISIBLE_DEVICES=$device python3 fire.py \
 --gradient_accumulation_steps $ACCU \
 --max_steps $MAX_STEPS \
 --train_examples $TRAIN_EXAMPLES \
-
+--do_adaptation $DO_ADAPT

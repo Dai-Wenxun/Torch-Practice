@@ -53,7 +53,7 @@ class Trainer:
         self.args = args
         self.model = None
         self.tokenizer = BertTokenizer.from_pretrained(self.args.model_name_or_path)
-        self.writer = SummaryWriter(self.args.output_dir)
+        # self.writer = SummaryWriter(os.path.join(self.args.output_dir, 'runs'))
         self.preprocessor = PREPROCESSORS[self.args.train_type](self.tokenizer, self.args)
         self.train_step = TRAIN_STEP_FUNCTIONS[self.args.train_type](self)
         self.eval_step = EVALUATION_STEP_FUNCTIONS[self.args.train_type](self)
@@ -132,7 +132,7 @@ class Trainer:
 
                         scores = self.eval(eval_data)['scores']
                         logger.info(json.dumps(scores))
-                        self.writer.add_scalars('metrics', scores, global_step)
+                        # self.writer.add_scalars('metrics', scores, global_step)
                         valid_score = scores[self.args.metrics[0]]
                         if self.args.stopping_steps > 0:
                             best_score, stopping_step, stop_flag, update_flag = early_stopping(
@@ -153,8 +153,8 @@ class Trainer:
             if stop_flag or 0 < self.args.max_steps <= global_step:
                 break
 
-            self.model = None
-            torch.cuda.empty_cache()
+        self.model = None
+        torch.cuda.empty_cache()
 
         return best_res
 
@@ -176,10 +176,9 @@ class Trainer:
             self.model.eval()
 
             batch = {k: t.to(self.args.device) for k, t in batch.items()}
-            labels = batch.pop('labels')
+            labels = batch['labels']
             with torch.no_grad():
-                outputs = self.model(**batch)
-                logits = outputs[0]
+                logits = self.eval_step(batch)
 
             if preds is None:
                 preds = logits.detach().cpu().numpy()
@@ -245,8 +244,9 @@ class Trainer:
     def mlm_eval_step(self):
         pass
 
-    def seq_cls_eval_step(self):
-        pass
+    def seq_cls_eval_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        inputs = self._generate_default_inputs(batch)
+        return self.model(**inputs)[0]
 
     @staticmethod
     def _generate_default_inputs(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
