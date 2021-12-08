@@ -6,7 +6,7 @@ import json
 from abc import ABC, abstractmethod
 from collections import Counter
 from logging import getLogger
-from typing import List
+from typing import List, Tuple, Union
 from torch.utils.data import Dataset
 
 
@@ -478,7 +478,8 @@ TEST_SET = "test"
 SET_TYPES = [TRAIN_SET, DEV_SET, TEST_SET]
 
 
-def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = 42) -> List[InputExample]:
+def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = None) \
+        -> Tuple[List[InputExample], List[InputExample]]:
     processor = PROCESSORS[task]()
 
     if set_type == DEV_SET:
@@ -489,20 +490,22 @@ def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed:
         examples = processor.get_train_examples(data_dir)
     else:
         raise ValueError(f"'set_type' must be one of {SET_TYPES}, got '{set_type}' instead")
-
-    examples = _shuffle_and_restrict(examples, num_examples, seed)
+    examples, unused_examples = _shuffle_and_restrict(examples, num_examples, seed)
 
     label_distribution = Counter(example.label for example in examples)
     logger.info(f"{len(examples)} {set_type} examples with label dist: {list(label_distribution.items())}")
 
-    return examples
+    return examples, unused_examples
 
 
-def _shuffle_and_restrict(examples: List[InputExample], num_examples: float, seed: int = 42) -> List[InputExample]:
+def _shuffle_and_restrict(examples: List[InputExample], num_examples: float, seed: int = 42) \
+        -> Tuple[List[Union[InputExample, None]], List[Union[InputExample, None]]]:
     if 0 < num_examples <= 1.0:
         random.Random(seed).shuffle(examples)
-        examples = examples[:int(num_examples * len(examples))]
+        used_examples = examples[:int(num_examples * len(examples))]
+        unused_examples = examples[int(num_examples * len(examples)):]
     elif 1 < num_examples < len(examples):
         random.Random(seed).shuffle(examples)
-        examples = examples[:int(num_examples)]
-    return examples
+        used_examples = examples[:int(num_examples)]
+        unused_examples = examples[int(num_examples):]
+    return used_examples, unused_examples
