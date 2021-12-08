@@ -1,14 +1,11 @@
 METHOD=$1
 MODEL_NAME_OR_PATH=$2
 TASK=$3
-device=$4
-TRAIN_EXAMPLES=$5
-DO_ADAPT=$6
+TRAIN_EXAMPLES=$4
 
 DATA_ROOT='data/'
-SEQ_LENGTH=256
-TRAIN_BATCH_SIZE=8
-EVAL_BATCH_SIZE=16
+TRAIN_BATCH_SIZE=2
+EVAL_BATCH_SIZE=4
 ACCU=1
 
 if [ $TASK = "cola" ]; then
@@ -50,7 +47,8 @@ elif [ $TASK = "wnli" ]; then
 fi
 
 
-CUDA_VISIBLE_DEVICES=$device python3 fire.py \
+#CUDA_VISIBLE_DEVICES=$device
+python3 fire.py \
 --method $METHOD \
 --data_dir $DATA_DIR \
 --model_name_or_path $MODEL_NAME_OR_PATH \
@@ -60,5 +58,4 @@ CUDA_VISIBLE_DEVICES=$device python3 fire.py \
 --per_gpu_eval_batch_size $EVAL_BATCH_SIZE \
 --gradient_accumulation_steps $ACCU \
 --max_steps $MAX_STEPS \
---train_examples $TRAIN_EXAMPLES \
---do_adaptation $DO_ADAPT
+--train_examples $TRAIN_EXAMPLES
