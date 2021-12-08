@@ -12,14 +12,11 @@ from transformers import InputExample, AdamW, get_linear_schedule_with_warmup, \
 from sklearn.metrics import accuracy_score, matthews_corrcoef, f1_score
 from scipy.stats import spearmanr, pearsonr
 
-
 from tasks import InputFeatures, DictDataset
 from utils import early_stopping, distillation_loss
 from preprocessor import SequenceClassifierPreprocessor
 
-
 logger = getLogger()
-
 
 SEQ_CLS_TYPE = 'seq_cls_type'
 MLM_TYPE = 'mlm_type'
@@ -58,8 +55,9 @@ class Trainer:
         self.train_step = TRAIN_STEP_FUNCTIONS[self.args.train_type](self)
         self.eval_step = EVALUATION_STEP_FUNCTIONS[self.args.train_type](self)
 
-    def train(self, train_data: List[InputExample], eval_data: List[InputExample] = None) -> Dict:
-        self._init_model()
+    def train(self, train_data: List[InputExample], eval_data: List[InputExample] = None,
+              checkpoint_path: str = None) -> Dict:
+        self._init_model(checkpoint_path)
         train_batch_size = self.args.per_gpu_train_batch_size * max(1, self.args.n_gpu)
         train_dataset = self._generate_dataset(train_data)
         train_sampler = RandomSampler(train_dataset)
@@ -68,7 +66,7 @@ class Trainer:
         if self.args.max_steps > 0:
             t_total = self.args.max_steps
             self.args.num_train_epochs = self.args.max_steps // \
-                                (max(1, len(train_dataloader) // self.args.gradient_accumulation_steps)) + 1
+                                         (max(1, len(train_dataloader) // self.args.gradient_accumulation_steps)) + 1
         else:
             t_total = len(train_dataloader) // self.args.gradient_accumulatin_steps * self.args.num_train_epochs
 
@@ -211,6 +209,7 @@ class Trainer:
 
     def mlm_train_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         pass
+
     #     inputs = self._generate_default_inputs(train_batch)
     #     labels = train_batch['labels']
     #
@@ -278,16 +277,20 @@ class Trainer:
 
     def _save(self) -> None:
         saved_path = os.path.join(self.args.output_dir, 'finetuned_model')
-        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-        model_to_save.save_pretrained(saved_path)
-        self.tokenizer.save_pretrained(saved_path)
+        # model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        # model_to_save.save_pretrained(saved_path)
+        # self.tokenizer.save_pretrained(saved_path)
         logger.info(f"Model saved at {saved_path}")
 
-    def _init_model(self):
+    def _init_model(self, checkpoint_path=None):
+        if checkpoint_path:
+            model_name_or_path = checkpoint_path
+        else:
+            model_name_or_path = self.args.model_name_or_path
+
         if self.args.train_type == SEQ_CLS_TYPE:
             self.model = BertForSequenceClassification.from_pretrained(
-                self.args.model_name_or_path, num_labels=len(self.args.label_list)).to(self.args.device)
+                model_name_or_path, num_labels=len(self.args.label_list)).to(self.args.device)
         elif self.args.train_type == MLM_TYPE:
-            self.model = BertForMaskedLM.from_pretrained(self.args.model_name_or_path).to(self.args.device)
+            self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(self.args.device)
         logger.info(f'Load parameters from {self.args.model_name_or_path}')
-
