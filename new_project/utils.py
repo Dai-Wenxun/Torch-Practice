@@ -28,9 +28,10 @@ def beautify(args):
     args_info += f"model_name_or_path={args.model_name_or_path}\n"
     args_info += f"task_name={args.task_name}\n"
     args_info += f"max_length={args.max_length}\n"
-    args_info += f"do_adaptation={args.do_adaptation}\n"
+
     args_info += f"train_examples={args.train_examples}\n"
     args_info += f"dev_examples={args.dev_examples}\n"
+
     args_info += f"per_gpu_train_batch_size={args.per_gpu_train_batch_size}\n"
     args_info += f"per_gpu_eval_batch_size={args.per_gpu_eval_batch_size}\n"
     args_info += f"num_train_epochs={args.num_train_epochs}\n"
@@ -45,6 +46,7 @@ def beautify(args):
     args_info += f"adam_epsilon={args.adam_epsilon}\n"
     args_info += f"max_grad_norm={args.max_grad_norm}\n"
     args_info += f"seed={args.seed}\n"
+
     args_info += f"output_dir={args.output_dir}\n"
     args_info += f"label_list={args.label_list}\n"
     args_info += f"metrics={args.metrics}\n"
