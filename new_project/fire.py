@@ -4,11 +4,10 @@ import argparse
 from logging import getLogger
 
 from logger import init_logger
-from tasks import load_examples, PROCESSORS, TRAIN_SET, DEV_SET, METRICS, DEFAULT_METRICS
+from tasks import PROCESSORS, METRICS, DEFAULT_METRICS
 from trainer import Trainer, METHODS
-from utils import beautify
+from utils import beautify, get_local_time
 from modeling import train_single_model
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -25,8 +24,6 @@ def main():
     parser.add_argument("--max_length", default=None, type=int, required=True,
                         help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
-    parser.add_argument("--do_adaptation", default=False, type=bool,
-                        help='Whether performed domain adaptation')
 
     # dataset parameters
     parser.add_argument("--train_examples", default=0.1, type=float,
@@ -61,33 +58,21 @@ def main():
                         help="Epsilon for Adam optimizer.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float,
                         help="Max gradient norm.")
-    parser.add_argument('--seed', type=list, default=[42, 84, 126],
+    parser.add_argument('--seed', type=list, default=[0, 10, 100],
                         help="random seed for initialization")
 
     args = parser.parse_args()
-
-    if args.do_adaptation:
-        args.output_dir = os.path.join(*args.model_name_or_path.split('/')[:-1], args.method)
-    else:
-        args.output_dir = os.path.join('./output', args.task_name, args.method, args.model_name_or_path.split('/')[-1])
+    args.output_dir = os.path.join('./output', args.task_name, args.model_name_or_path.split('/')[-1], get_local_time())
 
     # Init logger
     init_logger(args.output_dir)
     logger = getLogger()
 
-    # Prepare task
-    processor = PROCESSORS[args.task_name]()
-    train_data = load_examples(
-        args.task_name, args.data_dir, TRAIN_SET, num_examples=args.train_examples)
-    eval_data = load_examples(
-        args.task_name, args.data_dir, DEV_SET, num_examples=args.dev_examples)
-
     # Parameters addition
-    args.label_list = processor.get_labels()
+    args.label_list = PROCESSORS[args.task_name]().get_labels()
     args.metrics = METRICS.get(args.task_name, DEFAULT_METRICS)
     args.device = "cuda" if torch.cuda.is_available() else "cpu"
     args.n_gpu = torch.cuda.device_count()
-
     if args.method.endswith('mlm'):
         args.train_type = 'mlm_type'
     else:
@@ -97,9 +82,9 @@ def main():
 
     trainer = Trainer(args)
 
-    train_single_model(trainer, train_data, eval_data=eval_data)
+    train_single_model(trainer)
 
 
 if __name__ == '__main__':
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "3, 2, 1, 0"
     main()
