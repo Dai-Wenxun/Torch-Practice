@@ -1,8 +1,3 @@
-
 ## baseline
-bash run.sh  seq_cls ./model/bert-base-uncased cola 0 0.1
+bash run.sh  seq_cls ./model/bert-base-uncased cola 0.1
 
-
-## adapt
-
-bash run.sh  seq_cls ./output/cola/adapted-bert-base-uncased/21-1206-1945/adapted_model cola 0 0.1 True
