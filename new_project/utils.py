@@ -77,3 +77,7 @@ def distillation_loss(predictions, targets, temperature):
     p = F.log_softmax(predictions / temperature, dim=1)
     q = F.softmax(targets / temperature, dim=1)
     return F.kl_div(p, q, reduction='sum') * (temperature ** 2) / predictions.shape[0]
+
+
+def sigmoid(x):
+    return 1. / (1. + np.exp(-x))
