@@ -2,6 +2,7 @@ import os
 import json
 import torch
 import numpy as np
+import torch.nn as nn
 from tqdm import tqdm
 from logging import getLogger
 from typing import List, Dict
@@ -12,8 +13,9 @@ from transformers import InputExample, AdamW, get_linear_schedule_with_warmup, \
 from sklearn.metrics import accuracy_score, matthews_corrcoef, f1_score
 from scipy.stats import spearmanr, pearsonr
 
+
 from tasks import InputFeatures, DictDataset
-from utils import early_stopping, distillation_loss
+from utils import early_stopping, sigmoid
 from preprocessor import SequenceClassifierPreprocessor
 
 logger = getLogger()
@@ -187,7 +189,11 @@ class Trainer:
 
         results['logits'] = preds
         results['labels'] = out_label_ids
-        results['predictions'] = np.argmax(results['logits'], axis=1)
+
+        if len(self.args.label_list) == 2:
+            results['predictions'] = np.array(sigmoid(results['logits'].reshape(-1)) > 0.5, dtype=np.int64)
+        else:
+            results['predictions'] = np.argmax(results['logits'], axis=1)
 
         scores = {}
         for metric in self.args.metrics:
@@ -227,18 +233,20 @@ class Trainer:
     #     #
     #     # loss = nn.CrossEntropyLoss()(prediction_scores.view(-1, len(self.args.label_list)), labels.view(-1))
 
-    def seq_cls_train_step(self, batch: Dict[str, torch.Tensor], use_logits: bool = False) -> torch.Tensor:
+    def seq_cls_train_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Perform a sequence classifier training step."""
         inputs = self._generate_default_inputs(batch)
-        if not use_logits:
-            inputs['labels'] = batch['labels']
-        outputs = self.model(**inputs)
+        logits = self.model(**inputs)[0]
+        num_labels = len(self.args.label_list)
+        labels = batch['labels'].view(-1)
 
-        if use_logits:
-            logits_predicted, logits_target = outputs[0], batch['logits']
-            return distillation_loss(logits_predicted, logits_target, self.args.temperature)
+        if num_labels == 1:
+            loss = nn.MSELoss()(logits.view(-1), labels)
+        elif num_labels == 2:
+            loss = nn.BCEWithLogitsLoss()(logits.view(-1), labels.float())
         else:
-            return outputs[0]
+            loss = nn.CrossEntropyLoss()(logits.view(-1, num_labels), labels.view(-1))
+        return loss
 
     def mlm_eval_step(self):
         pass
@@ -276,11 +284,12 @@ class Trainer:
         return features
 
     def _save(self) -> None:
-        saved_path = os.path.join(self.args.output_dir, 'finetuned_model')
+        # saved_path = os.path.join(self.args.output_dir, 'finetuned_model')
         # model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
         # model_to_save.save_pretrained(saved_path)
         # self.tokenizer.save_pretrained(saved_path)
-        logger.info(f"Model saved at {saved_path}")
+        # logger.info(f"Model saved at {saved_path}")
+        pass
 
     def _init_model(self, checkpoint_path=None):
         if checkpoint_path:
@@ -289,8 +298,9 @@ class Trainer:
             model_name_or_path = self.args.model_name_or_path
 
         if self.args.train_type == SEQ_CLS_TYPE:
+            num_labels = len(self.args.label_list) if len(self.args.label_list) != 2 else 1
             self.model = BertForSequenceClassification.from_pretrained(
-                model_name_or_path, num_labels=len(self.args.label_list)).to(self.args.device)
+                model_name_or_path, num_labels=num_labels).to(self.args.device)
         elif self.args.train_type == MLM_TYPE:
             self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(self.args.device)
-        logger.info(f'Load parameters from {self.args.model_name_or_path}')
+        logger.info(f'Load parameters from {model_name_or_path}')
