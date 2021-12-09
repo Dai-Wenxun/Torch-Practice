@@ -1,6 +1,6 @@
-import os
 import torch
 import json
+import random
 from tqdm import tqdm
 from typing import Tuple, List
 from logging import getLogger
@@ -10,7 +10,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 from tasks import DictDataset, load_examples, TRAIN_SET, InputExample
 from utils import early_stopping, set_seed
-
 
 logger = getLogger()
 
@@ -27,16 +26,23 @@ def _print_hyper_params(args):
     args_info += f"weight_decay={args['weight_decay']}\n"
     args_info += f"adam_epsilon={args['adam_epsilon']}\n"
     args_info += f"max_grad_norm={args['max_grad_norm']}\n"
+    args_info += f"mask_ratio={args['mask_ratio']}\n"
 
     return args_info
 
 
-def _mask_tokens(input_ids, tokenizer: BertTokenizer):
+def _get_special_tokens_mask(tokenizer, token_ids_0):
+    return list(map(lambda x: 1 if x in [tokenizer.sep_token_id, tokenizer.cls_token_id, tokenizer.pad_token_id] else 0,
+                    token_ids_0))
+
+
+def _mask_tokens(input_ids, tokenizer: BertTokenizer, mask_ratio):
     labels = input_ids.clone()
     # We sample a few tokens in each sequence for masked-LM training (with probability 0.15)
-    probability_matrix = torch.full(labels.shape, 0.15)
-    special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in
-                           labels.tolist()]
+    probability_matrix = torch.full(labels.shape, mask_ratio)
+    # special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in
+    #                        labels.tolist()]
+    special_tokens_mask = [_get_special_tokens_mask(tokenizer, val) for val in labels.tolist()]
     probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
 
     masked_indices = torch.bernoulli(probability_matrix).bool()
@@ -87,7 +93,8 @@ def API_Adapt(data_dir,
               learning_rate=5e-5,
               weight_decay=0.01,
               adam_epsilon=1e-8,
-              max_grad_norm=1.0
+              max_grad_norm=1.0,
+              mask_ratio=0.3
               ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     n_gpu = torch.cuda.device_count()
@@ -95,7 +102,7 @@ def API_Adapt(data_dir,
     set_seed(seed)
 
     ########################################
-    ##           TRAINING START           ##
+    #           TRAINING START            #
     ########################################
     model = BertForMaskedLM.from_pretrained(model_name_or_path).to(device)
     tokenizer = BertTokenizer.from_pretrained(model_name_or_path)
@@ -112,7 +119,7 @@ def API_Adapt(data_dir,
     if max_steps > 0:
         t_total = max_steps
         num_train_epochs = max_steps // \
-                                (max(1, len(train_dataloader) // gradient_accumulation_steps)) + 1
+                           (max(1, len(train_dataloader) // gradient_accumulation_steps)) + 1
     else:
         t_total = len(train_dataloader) // gradient_accumulation_steps * num_train_epochs
 
@@ -148,7 +155,7 @@ def API_Adapt(data_dir,
         for _, batch in enumerate(epoch_iterator):
             model.train()
             batch = {k: t.to(device) for k, t in batch.items()}
-            batch['input_ids'], batch['labels'] = _mask_tokens(batch['input_ids'], tokenizer)
+            batch['input_ids'], batch['labels'] = _mask_tokens(batch['input_ids'], tokenizer, mask_ratio)
             loss = model(**batch)[0]
 
             if n_gpu > 1:
