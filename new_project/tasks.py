@@ -478,7 +478,7 @@ TEST_SET = "test"
 SET_TYPES = [TRAIN_SET, DEV_SET, TEST_SET]
 
 
-def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = None) \
+def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = None, threshold=100000) \
         -> Tuple[List[InputExample], List[InputExample]]:
     processor = PROCESSORS[task]()
 
@@ -490,6 +490,11 @@ def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed:
         examples = processor.get_train_examples(data_dir)
     else:
         raise ValueError(f"'set_type' must be one of {SET_TYPES}, got '{set_type}' instead")
+
+    if len(examples) > threshold:
+        random.Random(seed).shuffle(examples)
+        examples = examples[:threshold]
+
     examples, unused_examples = _shuffle_and_restrict(examples, num_examples, seed)
 
     label_distribution = Counter(example.label for example in examples)
