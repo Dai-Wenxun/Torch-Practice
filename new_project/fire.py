@@ -9,6 +9,7 @@ from trainer import Trainer, METHODS
 from utils import beautify, get_local_time
 from modeling import train_single_model
 
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -21,7 +22,7 @@ def main():
                         help="Path to the pre-trained model or shortcut name")
     parser.add_argument("--task_name", default=None, type=str, required=True, choices=PROCESSORS.keys(),
                         help="The name of the task to train/evaluate on")
-    parser.add_argument("--max_length", default=None, type=int, required=True,
+    parser.add_argument("--c", default=None, type=int, required=True,
                         help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
 
@@ -44,7 +45,7 @@ def main():
                         help="If > 0: Override num_train_epochs.")
     parser.add_argument('--logging_steps', type=int, default=50,
                         help="Log every X updates steps.")
-    parser.add_argument('--stopping_steps', type=int, default=10,
+    parser.add_argument('--stopping_steps', type=int, default=-1,
                         help="Early stopping steps")
     parser.add_argument('--repetitions', default=3, type=int,
                         help="The number of times to repeat training and testing with different seeds.")
