@@ -1,11 +1,8 @@
-
 from tasks import load_examples
 
 examples = load_examples('rte', './data/rte', 'train', -1)
 
-
 from transformers import BertTokenizer
-
 
 tokenizer = BertTokenizer.from_pretrained('./model/bert-base-uncased')
 
@@ -22,7 +19,16 @@ for ids in batch_encoding['input_ids']:
         min_len = len(ids)
     sum_len += len(ids)
 
-
 avg_len = sum_len / len(batch_encoding['input_ids'])
 
 print(f'max_len: {max_len}, \nmin_len: {min_len}, \navg_len: {avg_len} \n')
+
+import torch
+import torch.nn as nn
+
+func = nn.BCELoss()
+logits = torch.tensor([[1], [1]], dtype=torch.float32)
+labels = torch.tensor([0, 1], dtype=torch.int64)
+loss = func(logits.view(-1), labels)
+
+
