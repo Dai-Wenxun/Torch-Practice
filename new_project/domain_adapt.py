@@ -1,6 +1,7 @@
+import os
 import torch
 import json
-import random
+import pickle
 from tqdm import tqdm
 from typing import Tuple, List
 from logging import getLogger
@@ -9,7 +10,7 @@ from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from tasks import DictDataset, load_examples, TRAIN_SET, InputExample
-from utils import early_stopping, set_seed
+from utils import set_seed
 
 logger = getLogger()
 
@@ -86,15 +87,14 @@ def API_Adapt(data_dir,
               per_gpu_train_batch_size=8,
               gradient_accumulation_steps=1,
               max_steps=-1,
-              num_train_epochs=3,
+              num_train_epochs=1,
               logging_steps=50,
-              stopping_steps=-1,
               warmup_steps=0,
               learning_rate=5e-5,
               weight_decay=0.01,
               adam_epsilon=1e-8,
               max_grad_norm=1.0,
-              mask_ratio=0.3
+              mask_ratio=0.15
               ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     n_gpu = torch.cuda.device_count()
@@ -144,10 +144,6 @@ def API_Adapt(data_dir,
     global_step = 0
     tr_loss, logging_loss = 0.0, 0.0
 
-    best_score = -1e9
-    stopping_step = 0
-    stop_flag, update_flag = False, False
-
     model.zero_grad()
 
     for epoch in range(num_train_epochs):
@@ -180,25 +176,19 @@ def API_Adapt(data_dir,
                     logging_loss = tr_loss
                     logger.info(json.dumps(logs))
                     writer.add_scalar('loss', loss_scalar, global_step)
-
-                    if stopping_steps > 0:
-                        best_score, stopping_step, stop_flag, update_flag = early_stopping(
-                            -loss_scalar, best_score, stopping_step, max_step=stopping_steps)
-                    else:
-                        update_flag = True
-
-                    if update_flag:
-                        model_to_save = model.module if hasattr(model, 'module') else model
-                        model_to_save.save_pretrained(output_dir)
-                        tokenizer.save_pretrained(output_dir)
-                        logger.info(f"Model saved at {output_dir}")
-
-                    if stop_flag or 0 < max_steps <= global_step:
+                    if 0 < max_steps <= global_step:
                         epoch_iterator.close()
                         break
             grad_acc_step += 1
-        if stop_flag or 0 < max_steps <= global_step:
+        if 0 < max_steps <= global_step:
             break
+
+    model_to_save = model.module if hasattr(model, 'module') else model
+    model_to_save.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    logger.info(f"Model saved at {output_dir}")
+    with open(os.path.join(output_dir, 'examples.bin'), 'wb') as f:
+        pickle.dump(fine_tune_examples, f)
 
     # Clear cache
     model = None
