@@ -72,6 +72,9 @@ class Trainer:
         else:
             t_total = len(train_dataloader) // self.args.gradient_accumulatin_steps * self.args.num_train_epochs
 
+        if self.args.stopping_steps < 0:
+            self.args.stopping_steps = t_total
+
         # Prepare optimizer and schedule (linear warmup and decay)
         no_decay = ['bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
@@ -214,24 +217,15 @@ class Trainer:
         return results
 
     def mlm_train_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        pass
+        inputs = self._generate_default_inputs(batch)
+        mlm_labels, labels = batch['mlm_labels'], batch['labels']
 
-    #     inputs = self._generate_default_inputs(train_batch)
-    #     labels = train_batch['labels']
-    #
-    #     if adaptation:
-    #         outputs = self.model(**inputs, labels=labels)
-    #         return outputs[0]  # loss
-    #
-    #     mlm_labels = train_batch['mlm_labels']
-    #     outputs = self.model(**inputs, labels=labels)
-    #     prediction_scores = self.preprocessor.pvp.convert_mlm_logits_to_cls_logits(mlm_labels, outputs[0])
-    #     loss = nn.CrossEntropyLoss()(prediction_scores.view(-1, len(self.config.label_list)), labels.view(-1))
-    #
-    #     return loss
-    #     #
-    #     #
-    #     # loss = nn.CrossEntropyLoss()(prediction_scores.view(-1, len(self.args.label_list)), labels.view(-1))
+        outputs = self.model(**inputs)
+        prediction_scores = self.preprocessor.pvp.convert_mlm_logits_to_cls_logits(mlm_labels, outputs[0])
+
+        loss = nn.CrossEntropyLoss()(prediction_scores.view(-1, len(self.args.label_list)), labels.view(-1))
+
+        return loss
 
     def seq_cls_train_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Perform a sequence classifier training step."""
