@@ -16,7 +16,7 @@ from scipy.stats import spearmanr, pearsonr
 
 from tasks import InputFeatures, DictDataset
 from utils import early_stopping, sigmoid
-from preprocessor import SequenceClassifierPreprocessor
+from preprocessor import SequenceClassifierPreprocessor, MLMPreprocessor
 
 logger = getLogger()
 
@@ -24,16 +24,15 @@ SEQ_CLS_TYPE = 'seq_cls_type'
 MLM_TYPE = 'mlm_type'
 
 SEQ_CLS = 'seq_cls'
-NON_PROMPT_MLM = 'non_prp_mlm'
 HARD_PROMPT_MLM = 'hrd_prp_mlm'
 SOFT_PROMPT_MLM = 'sft_prp_mlm'
 HYBRID_PROMPT_MLM = 'hybrid_prp_mlm'
 
-METHODS = [SEQ_CLS, NON_PROMPT_MLM, SOFT_PROMPT_MLM, HYBRID_PROMPT_MLM]
+METHODS = [SEQ_CLS, HARD_PROMPT_MLM, SOFT_PROMPT_MLM, HYBRID_PROMPT_MLM]
 
 PREPROCESSORS = {
     SEQ_CLS_TYPE: SequenceClassifierPreprocessor,
-    # MLM_TYPE: MLMPreprocessor,
+    MLM_TYPE: MLMPreprocessor,
 }
 
 EVALUATION_STEP_FUNCTIONS = {
@@ -262,6 +261,7 @@ class Trainer:
             'attention_mask': torch.tensor([f.attention_mask for f in features], dtype=torch.long),
             'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long),
             'labels': torch.tensor([f.label for f in features]),  # might be float
+            'mlm_labels': torch.tensor([f.mlm_labels for f in features], dtype=torch.long),
             'logits': torch.tensor([f.logits for f in features], dtype=torch.float),
         }
 
