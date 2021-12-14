@@ -10,7 +10,8 @@ class Preprocessor(ABC):
         self.tokenizer = tokenizer
         self.args = args
         self.label_map = {label: i for i, label in enumerate(args.label_list)}
-        self.pvp = PVPS[self.args.taskname](tokenizer, self.args.pattern_id)
+        if self.args.train_type == "mlm_type":
+            self.pvp = PVPS[self.args.task_name](args, tokenizer)
 
     @abstractmethod
     def get_input_features(self, example: InputExample) -> InputFeatures:
@@ -45,9 +46,10 @@ class SequenceClassifierPreprocessor(Preprocessor):
 
         label = label_from_example(example)
         logits = example.logits if example.logits else [-1]
+        mlm_labels = [-1] * len(input_ids)
 
         return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,
-                             label=label, logits=logits)
+                             label=label, mlm_labels=mlm_labels, logits=logits)
 
 
 class MLMPreprocessor(Preprocessor):
@@ -57,29 +59,23 @@ class MLMPreprocessor(Preprocessor):
         input_ids, token_type_ids = self.pvp.encode(example)
 
         attention_mask = [1] * len(input_ids)
-        padding_length = self.wrapper.config.max_seq_length - len(input_ids)
+        padding_length = self.args.max_length - len(input_ids)
 
         if padding_length < 0:
             raise ValueError(f"Maximum sequence length is too small, got {len(input_ids)} input ids")
 
-        input_ids = input_ids + ([self.wrapper.tokenizer.pad_token_id] * padding_length)
+        input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
         attention_mask = attention_mask + ([0] * padding_length)
         token_type_ids = token_type_ids + ([0] * padding_length)
 
-        assert len(input_ids) == self.wrapper.config.max_seq_length
-        assert len(attention_mask) == self.wrapper.config.max_seq_length
-        assert len(token_type_ids) == self.wrapper.config.max_seq_length
+        assert len(input_ids) == self.args.max_length
+        assert len(attention_mask) == self.args.max_length
+        assert len(token_type_ids) == self.args.max_length
 
         label = self.label_map[example.label] if example.label is not None else -100
         logits = example.logits if example.logits else [-1]
 
-        if labelled:
-            mlm_labels = self.pvp.get_mask_positions(input_ids)
-            if self.wrapper.config.model_type == 'gpt2':
-                # shift labels to the left by one
-                mlm_labels.append(mlm_labels.pop(0))
-        else:
-            mlm_labels = [-1] * self.wrapper.config.max_seq_length
+        mlm_labels = self.pvp.get_mask_positions(input_ids)
 
         return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,
-                             label=label, mlm_labels=mlm_labels, logits=logits, idx=example.idx)
+                             label=label, mlm_labels=mlm_labels, logits=logits)
