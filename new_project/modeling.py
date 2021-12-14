@@ -24,7 +24,7 @@ def logger_helper(results, metrics):
                  f"std_{metric}: {round(std(avg_scores[metric]), 2)}" for metric in metrics])
 
 
-def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path=None):
+def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path='output/cola/bert-base-uncased/21-1214-0924'):
     args = trainer.args
     fine_tune_results = []
     fine_tune_with_adapted_results = []
@@ -52,9 +52,9 @@ def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path=None)
                 logger.info(f'Domain:{domain_repetition}, Seed:{domain_seed}'
                             f' Finetune:{fine_tune_repetition}-Seed:{fine_tune_seed}')
 
-                logger.info("Fine tune with adaptation start: ")
-                fine_tune_with_adapted_results.append(trainer.train(train_data, eval_data=eval_data,
-                                                                    checkpoint_path=checkpoint_path))
+                # logger.info("Fine tune with adaptation start: ")
+                # fine_tune_with_adapted_results.append(trainer.train(train_data, eval_data=eval_data,
+                #                                                     checkpoint_path=checkpoint_path))
                 logger.info("Fine tune without adaptation start: ")
                 fine_tune_results.append(trainer.train(train_data, eval_data=eval_data))
 

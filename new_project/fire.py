@@ -22,7 +22,7 @@ def main():
                         help="Path to the pre-trained model or shortcut name")
     parser.add_argument("--task_name", default=None, type=str, required=True, choices=PROCESSORS.keys(),
                         help="The name of the task to train/evaluate on")
-    parser.add_argument("--c", default=None, type=int, required=True,
+    parser.add_argument("--max_length", default=None, type=int, required=True,
                         help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
 
@@ -66,7 +66,7 @@ def main():
     args.output_dir = os.path.join('./output', args.task_name, args.model_name_or_path.split('/')[-1], get_local_time())
 
     # Init logger
-    init_logger(args.output_dir)
+    # init_logger(args.output_dir)
     logger = getLogger()
 
     # Parameters addition
