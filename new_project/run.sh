@@ -5,45 +5,39 @@ TRAIN_EXAMPLES=$4
 
 DATA_ROOT='data/'
 TRAIN_BATCH_SIZE=2
-EVAL_BATCH_SIZE=4
+EVAL_BATCH_SIZE=16
 ACCU=1
+MAX_STEPS=2500
+LOGGING_STEPS=50
 
 if [ $TASK = "cola" ]; then
   DATA_DIR=${DATA_ROOT}cola
   SEQ_LENGTH=64
-  MAX_STEPS=2000
 elif [ $TASK = "mnli" ] || [ $TASK = "mnli-mm" ]; then
   DATA_DIR=${DATA_ROOT}mnli
   SEQ_LENGTH=256
-  MAX_STEPS=10000
 elif [ $TASK = "mrpc" ]; then
   DATA_DIR=${DATA_ROOT}mrpc
   SEQ_LENGTH=128
-  MAX_STEPS=5000
 elif [ $TASK = "sst-2" ]; then
   DATA_DIR=${DATA_ROOT}sst-2
   SEQ_LENGTH=64
-  MAX_STEPS=10000
 elif [ $TASK = "sts-b" ]; then
   DATA_DIR=${DATA_ROOT}sts-b
-  SEQ_LENGTH=128
-  MAX_STEPS=5000
+  SEQ_LENGTH=64
 elif [ $TASK = "qqp" ]; then
   DATA_DIR=${DATA_ROOT}qqp
   SEQ_LENGTH=256
-  MAX_STEPS=10000
+  LOGGING_STEPS=100
 elif [ $TASK = "qnli" ]; then
   DATA_DIR=${DATA_ROOT}qnli
-  SEQ_LENGTH=256
-  MAX_STEPS=10000
+  SEQ_LENGTH=128
 elif [ $TASK = "rte" ]; then
   DATA_DIR=${DATA_ROOT}rte
-  SEQ_LENGTH=256
-  MAX_STEPS=5000
+  SEQ_LENGTH=128
 elif [ $TASK = "wnli" ]; then
   DATA_DIR=${DATA_ROOT}wnli
-  SEQ_LENGTH=128
-  MAX_STEPS=5000
+  SEQ_LENGTH=64
 fi
 
 
@@ -58,4 +52,5 @@ python3 fire.py \
 --per_gpu_eval_batch_size $EVAL_BATCH_SIZE \
 --gradient_accumulation_steps $ACCU \
 --max_steps $MAX_STEPS \
---train_examples $TRAIN_EXAMPLES
+--train_examples $TRAIN_EXAMPLES \
+--logging_steps $LOGGING_STEPS
