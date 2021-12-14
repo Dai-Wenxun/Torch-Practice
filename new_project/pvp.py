@@ -16,28 +16,19 @@ This file contains the pattern-verbalizer pairs (PVPs) for all tasks.
 import random
 import string
 from abc import ABC, abstractmethod
-from collections import defaultdict
-from typing import Tuple, List, Union, Dict
-
+from typing import Tuple, List, Union
 import torch
-from transformers import PreTrainedTokenizer, GPT2Tokenizer
+from transformers import BertTokenizer
+from logging import getLogger
+from tasks import InputExample
 
-from pet.task_helpers import MultiMaskTaskHelper
-from pet.tasks import TASK_HELPERS
-from pet.utils import InputExample, get_verbalization_ids
-
-logger = log.get_logger()
+logger = getLogger()
 
 FilledPattern = Tuple[List[Union[str, Tuple[str, bool]]], List[Union[str, Tuple[str, bool]]]]
 
 
 class PVP(ABC):
-    """
-    This class contains functions to apply patterns and verbalizers as required by PET. Each task requires its own
-    custom implementation of a PVP.
-    """
-
-    def __init__(self, args, tokenizer, seed: int = 42):
+    def __init__(self, args, tokenizer: BertTokenizer, seed: int = 42):
         self.args = args
         self.tokenizer = tokenizer
         self.rng = random.Random(seed)
@@ -45,14 +36,12 @@ class PVP(ABC):
 
     def _build_mlm_logits_to_cls_logits_tensor(self):
         label_list = self.args.label_list
-        m2c_tensor = torch.ones([len(label_list), self.max_num_verbalizers], dtype=torch.long) * -1
+        m2c_tensor = torch.ones(len(label_list), dtype=torch.long) * -1
 
         for label_idx, label in enumerate(label_list):
-            verbalizers = self.verbalize(label)
-            for verbalizer_idx, verbalizer in enumerate(verbalizers):
-                verbalizer_id = get_verbalization_ids(verbalizer, self.tokenizer, force_single_token=True)
-                assert verbalizer_id != self.tokenizer.unk_token_id, "verbalization was tokenized as <UNK>"
-                m2c_tensor[label_idx, verbalizer_idx] = verbalizer_id
+            verbalizer = self.verbalize(label)
+            verbalizer_id = self.tokenizer.encode(verbalizer, add_special_tokens=False)[0]
+            m2c_tensor[label_idx] = verbalizer_id
         return m2c_tensor
 
     @property
@@ -65,11 +54,6 @@ class PVP(ABC):
         """Return the underlying LM's mask id"""
         return self.tokenizer.mask_token_id
 
-    @property
-    def max_num_verbalizers(self) -> int:
-        """Return the maximum number of verbalizers across all labels"""
-        return max(len(self.verbalize(label)) for label in self.wrapper.config.label_list)
-
     @staticmethod
     def shortenable(s):
         """Return an instance of this string that is marked as shortenable"""
@@ -80,17 +64,7 @@ class PVP(ABC):
         """Remove the final punctuation mark"""
         return s.rstrip(string.punctuation)
 
-    @staticmethod
-    def lowercase_first(s: Union[str, Tuple[str, bool]]):
-        """Lowercase the first character"""
-        if isinstance(s, tuple):
-            return PVP.lowercase_first(s[0]), s[1]
-        return s[0].lower() + s[1:]
-
-    def encode(self, example: InputExample, priming: bool = False, labeled: bool = False) \
-            -> Tuple[List[int], List[int]]:
-        if not priming:
-            assert not labeled, "'labeled' can only be set to true if 'priming' is also set to true"
+    def encode(self, example: InputExample) -> Tuple[List[int], List[int]]:
 
         parts_a, parts_b = self.get_parts(example)
 
@@ -105,19 +79,6 @@ class PVP(ABC):
 
         tokens_a = [token_id for part, _ in parts_a for token_id in part]
         tokens_b = [token_id for part, _ in parts_b for token_id in part] if parts_b else None
-
-        if priming:
-            input_ids = tokens_a
-            if tokens_b:
-                input_ids += tokens_b
-            if labeled:
-                mask_idx = input_ids.index(self.mask_id)
-                assert mask_idx >= 0, 'sequence of input_ids must contain a mask token'
-                assert len(self.verbalize(example.label)) == 1, 'priming only supports one verbalization per label'
-                verbalizer = self.verbalize(example.label)[0]
-                verbalizer_id = self.tokenizer.encode(verbalizer, add_special_tokens=False)
-                input_ids[mask_idx] = verbalizer_id
-            return input_ids, []
 
         input_ids = self.tokenizer.build_inputs_with_special_tokens(tokens_a, tokens_b)
         token_type_ids = self.tokenizer.create_token_type_ids_from_sequences(tokens_a, tokens_b)
@@ -183,52 +144,29 @@ class PVP(ABC):
 
     def _convert_single_mlm_logits_to_cls_logits(self, logits: torch.Tensor) -> torch.Tensor:
         m2c = self.mlm_logits_to_cls_logits_tensor.to(logits.device)
-        # filler_len.shape() == max_fillers
-        filler_len = torch.tensor([len(self.verbalize(label)) for label in self.wrapper.config.label_list],
-                                  dtype=torch.float)
-        filler_len = filler_len.to(logits.device)
+        cls_logits = logits[m2c]
+        return cls_logits  # cls_logits.shape() == num_labels
 
-        # cls_logits.shape() == num_labels x max_fillers  (and 0 when there are not as many fillers).
-        cls_logits = logits[torch.max(torch.zeros_like(m2c), m2c)]
-        cls_logits = cls_logits * (m2c > 0).float()
 
-        # cls_logits.shape() == num_labels
-        cls_logits = cls_logits.sum(axis=1) / filler_len
-        return cls_logits
+class ColaPVP(PVP):
+    VERBALIZER = {
+        "0": "No",
+        "1": "Yes"
+    }
 
-    def convert_plm_logits_to_cls_logits(self, logits: torch.Tensor) -> torch.Tensor:
-        assert logits.shape[1] == 1
-        logits = torch.squeeze(logits, 1)  # remove second dimension as we always have exactly one <mask> per example
-        cls_logits = torch.stack([self._convert_single_mlm_logits_to_cls_logits(lgt) for lgt in logits])
-        return cls_logits
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        return [text_a, '?', self.mask], []
 
-    @staticmethod
-    def _load_verbalizer_from_file(path: str, pattern_id: int):
-
-        verbalizers = defaultdict(dict)  # type: Dict[int, Dict[str, List[str]]]
-        current_pattern_id = None
-
-        with open(path, 'r') as fh:
-            for line in fh.read().splitlines():
-                if line.isdigit():
-                    current_pattern_id = int(line)
-                elif line:
-                    label, *realizations = line.split()
-                    verbalizers[current_pattern_id][label] = realizations
-
-        logger.info("Automatically loaded the following verbalizer: \n {}".format(verbalizers[pattern_id]))
-
-        def verbalize(label) -> List[str]:
-            return verbalizers[pattern_id][label]
-
-        return verbalize
+    def verbalize(self, label) -> str:
+        return ColaPVP.VERBALIZER[label]
 
 
 class MnliPVP(PVP):
     VERBALIZER = {
-        "contradiction": ["No"],
-        "entailment": ["Yes"],
-        "neutral": ["Maybe"]
+        "contradiction": "No",
+        "entailment": "Yes",
+        "neutral": "Maybe"
     }
 
     def get_parts(self, example: InputExample) -> FilledPattern:
@@ -237,10 +175,13 @@ class MnliPVP(PVP):
 
         return [text_a, '?'], [self.mask, ',', text_b]
 
-    def verbalize(self, label) -> List[str]:
+    def verbalize(self, label) -> str:
         return MnliPVP.VERBALIZER[label]
 
 
+
+
 PVPS = {
-    'mnli': MnliPVP
+    'mnli': MnliPVP,
+    'cola': ColaPVP
 }
