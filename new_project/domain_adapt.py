@@ -2,256 +2,357 @@ import os
 import torch
 import json
 import pickle
+import torch.nn as nn
+from abc import ABC
 from tqdm import tqdm
 from typing import Tuple, List
 from logging import getLogger
-from transformers import BertForMaskedLM, BertTokenizer, AdamW, get_linear_schedule_with_warmup
+from transformers import BertForMaskedLM, BertModel, BertTokenizer, AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from tasks import DictDataset, load_examples, TRAIN_SET, InputExample
+from tasks import DictDataset, load_examples, TRAIN_SET, InputExample, InputFeatures
 from utils import set_seed
 
 logger = getLogger()
 
 
-def _print_hyper_params(args):
-    args_info = '\n'
-    args_info += f"per_gpu_train_batch_size={args['per_gpu_train_batch_size']}\n"
-    args_info += f"n_gpu={args['n_gpu']}\n"
-    args_info += f"gradient_accumulation_steps={args['gradient_accumulation_steps']}\n"
-    args_info += f"max_steps={args['max_steps']}\n"
-    args_info += f"num_train_epochs={args['num_train_epochs']}\n"
-    args_info += f"warmup_steps={args['warmup_steps']}\n"
-    args_info += f"learning_rate={args['learning_rate']}\n"
-    args_info += f"weight_decay={args['weight_decay']}\n"
-    args_info += f"adam_epsilon={args['adam_epsilon']}\n"
-    args_info += f"max_grad_norm={args['max_grad_norm']}\n"
-    args_info += f"mask_ratio={args['mask_ratio']}\n"
+class AdaptTrainer:
+    def __init__(self,
+                 method,
+                 data_dir,
+                 output_dir,
+                 model_name_or_path,
+                 task_name,
+                 max_length,
+                 train_examples,
+                 seed,
+                 device, 
+                 n_gpu, 
+                 per_gpu_train_batch_size=8,
+                 gradient_accumulation_steps=1,
+                 max_steps=-1,
+                 num_train_epochs=5,
+                 logging_steps=50,
+                 warmup_steps=0,
+                 learning_rate=5e-5,
+                 weight_decay=0.01,
+                 adam_epsilon=1e-8,
+                 max_grad_norm=1.0,
+                 mask_ratio=0.15,
+                 temperature=0.05
+                 ):
+        self.args = locals()
+        if method == 'prompt':
+            self.model = BertModel.from_pretrained(model_name_or_path, add_pooling_layer=False).to(device)
+        elif method == 'mlm':
+            self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(device)
 
-    return args_info
+        self.tokenizer = BertTokenizer.from_pretrained(model_name_or_path)
+        self.writer = SummaryWriter(output_dir)
 
+    def train(self):
+        set_seed(self.args['seed'])
+        examples, fine_tune_examples = load_examples(self.args['task_name'], self.args['data_dir'], TRAIN_SET,
+                                                     num_examples=self.args['train_examples'], seed=self.args['seed'])
 
-def _get_special_tokens_mask(tokenizer, token_ids_0):
-    return list(map(lambda x: 1 if x in [tokenizer.sep_token_id, tokenizer.cls_token_id, tokenizer.pad_token_id] else 0,
+        train_dataset = DatasetGenerator(self.args, self.tokenizer).generate(examples)
+
+        train_sampler = RandomSampler(train_dataset)
+        train_batch_size = self.args['per_gpu_train_batch_size'] * max(1, self.args['n_gpu'])
+        train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
+
+        if self.args['max_steps'] > 0:
+            t_total = self.args['max_steps']
+            self.args['num_train_epochs'] = self.args['max_steps'] // \
+                               (max(1, len(train_dataloader) // self.args['gradient_accumulation_steps'])) + 1
+        else:
+            t_total = len(train_dataloader) // self.args['gradient_accumulation_steps'] * self.args['num_train_epochs']
+
+        # Prepare optimizer and schedule (linear warmup and decay)
+        no_decay = ['bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+             'weight_decay': self.args['weight_decay']},
+            {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+             'weight_decay': 0.0}
+        ]
+
+        optimizer = AdamW(optimizer_grouped_parameters, lr=self.args['learning_rate'], eps=self.args['adam_epsilon'])
+        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.args['warmup_steps'],
+                                                    num_training_steps=t_total)
+
+        # multi-gpu training
+        if self.args['n_gpu'] > 1 and not isinstance(self.model, torch.nn.DataParallel):
+            self.model = torch.nn.DataParallel(self.model)
+
+        grad_acc_step = 0
+        global_step = 0
+        tr_loss, logging_loss = 0.0, 0.0
+
+        self.model.zero_grad()
+
+        for epoch in range(self.args['num_train_epochs']):
+            epoch_iterator = tqdm(train_dataloader, desc=f"Epoch:{epoch}:Iteration")
+            for _, batch in enumerate(epoch_iterator):
+                self.model.train()
+                batch = {k: t.to(self.args['device']) for k, t in batch.items()}
+
+                loss = None
+                if self.args['method'] == 'prompt':
+                    loss = self._prompt_train_step(batch)
+                elif self.args['method'] == 'mlm':
+                    loss = self._mlm_train_step(batch)
+
+                if self.args['n_gpu'] > 1:
+                    loss = loss.mean()
+                if self.args['gradient_accumulation_steps'] > 1:
+                    loss = loss / self.args['gradient_accumulation_steps']
+                loss.backward()
+
+                tr_loss += loss.item()
+                if (grad_acc_step + 1) % self.args['gradient_accumulation_steps'] == 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args['max_grad_norm'])
+                    optimizer.step()
+                    scheduler.step()
+                    self.model.zero_grad()
+                    global_step += 1
+
+                    if self.args['logging_steps'] > 0 and global_step % self.args['logging_steps'] == 0:
+                        logs = {}
+                        loss_scalar = (tr_loss - logging_loss) / self.args['logging_steps']
+                        logs['step'] = global_step
+                        logs['loss'] = loss_scalar
+                        logging_loss = tr_loss
+                        logger.info(json.dumps(logs))
+                        self.writer.add_scalar('loss', loss_scalar, global_step)
+                        if 0 < self.args['max_steps'] <= global_step:
+                            epoch_iterator.close()
+                            break
+                grad_acc_step += 1
+            if 0 < self.args['max_steps'] <= global_step:
+                break
+
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        model_to_save.save_pretrained(self.args['output_dir'])
+        self.tokenizer.save_pretrained(self.args['output_dir'])
+        logger.info(f"Model saved at {self.args['output_dir']}")
+        with open(os.path.join(self.args['output_dir'], 'examples.bin'), 'wb') as f:
+            pickle.dump(fine_tune_examples, f)
+
+        # Clear cache
+        self.model = None
+        torch.cuda.empty_cache()
+
+        return fine_tune_examples
+
+    def _mlm_train_step(self, batch):
+        batch['input_ids'], batch['labels'] = self._mask_tokens(batch['input_ids'])
+        loss = self.model(**batch)[0]
+        return loss
+
+    def _prompt_train_step(self, batch):
+        inputs_a = {'input_ids': batch['input_ids_a'], 'attention_mask': batch['attention_mask_a'],
+                    'token_type_ids': batch['token_type_ids_a']}
+        mlm_labels_a = batch['mlm_labels_a']
+
+        logits_a = self.model(**inputs_a)[0][mlm_labels_a >= 0]
+
+        inputs_b = {'input_ids': batch['input_ids_b'], 'attention_mask': batch['attention_mask_b'],
+                    'token_type_ids': batch['token_type_ids_b']}
+        mlm_labels_b = batch['mlm_labels_b']
+
+        logits_b = self.model(**inputs_b)[0][mlm_labels_b >= 0]
+
+        cos_sim = nn.CosineSimilarity(dim=-1)(logits_a.unsqueeze(1), logits_b.unsqueeze(0)) / self.args['temperature']
+
+        loss_fct = nn.CrossEntropyLoss()
+        labels = torch.arange(cos_sim.size(0)).long().to(logits_a.device)
+
+        loss = loss_fct(cos_sim, labels)
+
+        return loss
+
+    def _mask_tokens(self, input_ids):
+        def _get_special_tokens_mask(tokenizer, token_ids_0):
+            return list(
+                map(lambda x: 1 if x in [tokenizer.sep_token_id, tokenizer.cls_token_id, tokenizer.pad_token_id] else 0,
                     token_ids_0))
 
+        labels = input_ids.clone()
+        # We sample a few tokens in each sequence for masked-LM training (with probability 0.15)
+        probability_matrix = torch.full(labels.shape, self.args['mask_ratio'])
+        # special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in
+        #                        labels.tolist()]
+        special_tokens_mask = [_get_special_tokens_mask(self.tokenizer, val) for val in labels.tolist()]
+        probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
 
-def _mask_tokens(input_ids, tokenizer: BertTokenizer, mask_ratio):
-    labels = input_ids.clone()
-    # We sample a few tokens in each sequence for masked-LM training (with probability 0.15)
-    probability_matrix = torch.full(labels.shape, mask_ratio)
-    # special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in
-    #                        labels.tolist()]
-    special_tokens_mask = [_get_special_tokens_mask(tokenizer, val) for val in labels.tolist()]
-    probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
+        masked_indices = torch.bernoulli(probability_matrix).bool()
 
-    masked_indices = torch.bernoulli(probability_matrix).bool()
+        ignore_value = -100
 
-    ignore_value = -100
+        labels[~masked_indices] = ignore_value
 
-    labels[~masked_indices] = ignore_value
+        # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+        input_ids[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
 
-    # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
-    indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
-    input_ids[indices_replaced] = tokenizer.convert_tokens_to_ids(tokenizer.mask_token)
+        # 10% of the time, we replace masked input tokens with random word
+        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+        random_words = torch.randint(len(self.tokenizer), labels.shape, dtype=torch.long)
+        input_ids[indices_random] = random_words[indices_random].to(labels.device)
 
-    # 10% of the time, we replace masked input tokens with random word
-    indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
-    random_words = torch.randint(len(tokenizer), labels.shape, dtype=torch.long)
-    input_ids[indices_random] = random_words[indices_random].to(labels.device)
+        # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+        return input_ids, labels
 
-    # The rest of the time (10% of the time) we keep the masked input tokens unchanged
-    return input_ids, labels
-
-
-def _generate_dataset(examples: List[InputExample], max_length: int, tokenizer: BertTokenizer) -> DictDataset:
-    batch_encoding = tokenizer(
-        [(example.text_a, example.text_b) for example in examples],
-        max_length=max_length,
-        padding="max_length",
-        truncation=True,
-        return_tensors='pt'
-    )
-
-    return DictDataset(**batch_encoding)
+    def _print_hyper_params(self):
+        args_info = '\n'
+        args_info += f"method={self.args['method']}\n"
+        args_info += f"per_gpu_train_batch_size={self.args['per_gpu_train_batch_size']}\n"
+        args_info += f"n_gpu={self.args['n_gpu']}\n"
+        args_info += f"gradient_accumulation_steps={self.args['gradient_accumulation_steps']}\n"
+        args_info += f"max_steps={self.args['max_steps']}\n"
+        args_info += f"num_train_epochs={self.args['num_train_epochs']}\n"
+        args_info += f"warmup_steps={self.args['warmup_steps']}\n"
+        args_info += f"learning_rate={self.args['learning_rate']}\n"
+        args_info += f"weight_decay={self.args['weight_decay']}\n"
+        args_info += f"adam_epsilon={self.args['adam_epsilon']}\n"
+        args_info += f"max_grad_norm={self.args['max_grad_norm']}\n"
+        args_info += f"mask_ratio={self.args['mask_ratio']}\n"
+        args_info += f"temperature={self.args['temperature']}\n"
+        logger.info(args_info)
 
 
-def API_Adapt(data_dir,
-              output_dir,
-              model_name_or_path,
-              task_name,
-              max_length,
-              train_examples,
-              seed,
-              per_gpu_train_batch_size=8,
-              gradient_accumulation_steps=1,
-              max_steps=-1,
-              num_train_epochs=1,
-              logging_steps=50,
-              warmup_steps=0,
-              learning_rate=5e-5,
-              weight_decay=0.01,
-              adam_epsilon=1e-8,
-              max_grad_norm=1.0,
-              mask_ratio=0.15
-              ):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    n_gpu = torch.cuda.device_count()
-    logger.info(_print_hyper_params(locals()))
-    set_seed(seed)
+class DatasetGenerator(ABC):
+    def __init__(self, args, tokenizer: BertTokenizer):
+        self.args = args
+        self.tokenizer = tokenizer
 
-    ########################################
-    #           TRAINING START            #
-    ########################################
-    model = BertForMaskedLM.from_pretrained(model_name_or_path).to(device)
-    tokenizer = BertTokenizer.from_pretrained(model_name_or_path)
-    writer = SummaryWriter(output_dir)
+    def get_mask_positions(self, input_ids: List[int]) -> List[int]:
+        label_idx = input_ids.index(self.tokenizer.mask_token_id)
+        labels = [-1] * len(input_ids)
+        labels[label_idx] = 1
+        return labels
 
-    examples, fine_tune_examples = load_examples(task_name, data_dir, TRAIN_SET,
-                                                 num_examples=train_examples, seed=seed)
+    @staticmethod
+    def shortenable(s):
+        """Return an instance of this string that is marked as shortenable"""
+        return s, True
 
-    train_dataset = _generate_dataset(examples, max_length, tokenizer)
-    train_sampler = RandomSampler(train_dataset)
-    train_batch_size = per_gpu_train_batch_size * max(1, n_gpu)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
+    def encode(self, parts_a, parts_b) -> InputFeatures:
+        parts_a = [x if isinstance(x, tuple) else (x, False) for x in parts_a]
+        parts_a = [(self.tokenizer.encode(x, add_special_tokens=False), s) for x, s in parts_a if x]
 
-    if max_steps > 0:
-        t_total = max_steps
-        num_train_epochs = max_steps // \
-                           (max(1, len(train_dataloader) // gradient_accumulation_steps)) + 1
-    else:
-        t_total = len(train_dataloader) // gradient_accumulation_steps * num_train_epochs
+        if parts_b:
+            parts_b = [x if isinstance(x, tuple) else (x, False) for x in parts_b]
+            parts_b = [(self.tokenizer.encode(x, add_special_tokens=False), s) for x, s in parts_b if x]
 
-    # Prepare optimizer and schedule (linear warmup and decay)
-    no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-         'weight_decay': weight_decay},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-         'weight_decay': 0.0}
-    ]
+        self.truncate(parts_a, parts_b)
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate, eps=adam_epsilon)
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps,
-                                                num_training_steps=t_total)
+        tokens_a = [token_id for part, _ in parts_a for token_id in part]
+        tokens_b = [token_id for part, _ in parts_b for token_id in part] if parts_b else None
 
-    # multi-gpu training
-    if n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
-        model = torch.nn.DataParallel(model)
+        input_ids = self.tokenizer.build_inputs_with_special_tokens(tokens_a, tokens_b)
+        token_type_ids = self.tokenizer.create_token_type_ids_from_sequences(tokens_a, tokens_b)
 
-    grad_acc_step = 0
-    global_step = 0
-    tr_loss, logging_loss = 0.0, 0.0
+        attention_mask = [1] * len(input_ids)
+        padding_length = self.args['max_length'] - len(input_ids)
 
-    model.zero_grad()
+        input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
+        attention_mask = attention_mask + ([0] * padding_length)
+        token_type_ids = token_type_ids + ([0] * padding_length)
 
-    for epoch in range(num_train_epochs):
-        epoch_iterator = tqdm(train_dataloader, desc=f"Epoch:{epoch}:Iteration")
-        for _, batch in enumerate(epoch_iterator):
-            model.train()
-            batch = {k: t.to(device) for k, t in batch.items()}
-            batch['input_ids'], batch['labels'] = _mask_tokens(batch['input_ids'], tokenizer, mask_ratio)
-            loss = model(**batch)[0]
+        assert len(input_ids) == self.args['max_length']
+        assert len(attention_mask) == self.args['max_length']
+        assert len(token_type_ids) == self.args['max_length']
 
-            if n_gpu > 1:
-                loss = loss.mean()
-            if gradient_accumulation_steps > 1:
-                loss = loss / gradient_accumulation_steps
-            loss.backward()
+        mlm_labels = self.get_mask_positions(input_ids)
 
-            tr_loss += loss.item()
-            if (grad_acc_step + 1) % gradient_accumulation_steps == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                optimizer.step()
-                scheduler.step()
-                model.zero_grad()
-                global_step += 1
+        return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,
+                             mlm_labels=mlm_labels)
 
-                if logging_steps > 0 and global_step % logging_steps == 0:
-                    logs = {}
-                    loss_scalar = (tr_loss - logging_loss) / logging_steps
-                    logs['step'] = global_step
-                    logs['loss'] = loss_scalar
-                    logging_loss = tr_loss
-                    logger.info(json.dumps(logs))
-                    writer.add_scalar('loss', loss_scalar, global_step)
-                    if 0 < max_steps <= global_step:
-                        epoch_iterator.close()
-                        break
-            grad_acc_step += 1
-        if 0 < max_steps <= global_step:
-            break
+    @staticmethod
+    def _seq_length(parts: List[Tuple[List[int], bool]], only_shortenable: bool = False):
+        return sum([len(x) for x, shortenable in parts if not only_shortenable or shortenable]) if parts else 0
 
-    model_to_save = model.module if hasattr(model, 'module') else model
-    model_to_save.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
-    logger.info(f"Model saved at {output_dir}")
-    with open(os.path.join(output_dir, 'examples.bin'), 'wb') as f:
-        pickle.dump(fine_tune_examples, f)
+    @staticmethod
+    def _remove_last(parts: List[Tuple[List[int], bool]]):
+        last_idx = max(idx for idx, (seq, shortenable) in enumerate(parts) if shortenable and seq)
+        parts[last_idx] = (parts[last_idx][0][:-1], parts[last_idx][1])
 
-    # Clear cache
-    model = None
-    torch.cuda.empty_cache()
+    def truncate(self, parts_a: List[Tuple[List[int], bool]], parts_b: List[Tuple[List[int], bool]]):
+        total_len = self._seq_length(parts_a) + self._seq_length(parts_b)
+        total_len += self.tokenizer.num_special_tokens_to_add(bool(parts_b))
+        num_tokens_to_remove = total_len - self.args['max_length']
 
-    return fine_tune_examples
+        if num_tokens_to_remove <= 0:
+            return parts_a, parts_b
 
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#
-#     # required parameters
-#     parser.add_argument("--data_dir", default=None, type=str, required=True,
-#                         help="The input data dir. Should contain the data files for the task.")
-#     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
-#                         help="Path to the pre-trained model or shortcut name")
-#     parser.add_argument("--task_name", default=None, type=str, required=True, choices=PROCESSORS.keys(),
-#                         help="The name of the task to train/evaluate on")
-#     parser.add_argument("--max_length", default=None, type=int, required=True,
-#                         help="The maximum total input sequence length after tokenization. Sequences longer "
-#                              "than this will be truncated, sequences shorter will be padded.")
-#
-#     # dataset parameters
-#     parser.add_argument("--train_examples", default=-1, type=int,
-#                         help="The total number of train examples to use, where -1 equals all examples.")
-#
-#     # training & evaluation parameters
-#     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int,
-#                         help="Batch size per GPU/CPU for training.")
-#     parser.add_argument("--num_train_epochs", default=3, type=float,
-#                         help="Total number of training epochs.")
-#     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
-#                         help="Number of updates steps to accumulate before performing a backward/update pass.")
-#     parser.add_argument("--max_steps", default=-1, type=int,
-#                         help="If > 0: Override num_train_epochs.")
-#     parser.add_argument('--logging_steps', type=int, default=50,
-#                         help="Log every X updates steps.")
-#     parser.add_argument('--stopping_steps', type=int, default=10,
-#                         help="Early stopping steps")
-#     parser.add_argument("--warmup_steps", default=0, type=int,
-#                         help="Linear warmup over warmup_steps.")
-#     parser.add_argument("--learning_rate", default=1e-5, type=float,
-#                         help="The initial learning rate for Adam.")
-#     parser.add_argument("--weight_decay", default=0.01, type=float,
-#                         help="Weight decay if we apply some.")
-#     parser.add_argument("--adam_epsilon", default=1e-8, type=float,
-#                         help="Epsilon for Adam optimizer.")
-#     parser.add_argument("--max_grad_norm", default=1.0, type=float,
-#                         help="Max gradient norm.")
-#     parser.add_argument('--seed', type=list, default=42,
-#                         help="random seed for initialization")
-#
-#     args = parser.parse_args()
-#
-#     # Logger Setup
-#     output_dir = os.path.join('./output', task_name,
-#                                    f"adapted-{model_name_or_path.split('/')[-1]}", f'{get_local_time()}')
-#     init_logger(output_dir)
-#     logger = getLogger()
-#
-#     # Gpu Setup
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
-#     n_gpu = torch.cuda.device_count()
-#
-#     logger.info(_print_hyper_params(args))
-#
-#     train(args)
+        for _ in range(num_tokens_to_remove):
+            if self._seq_length(parts_a, only_shortenable=True) > self._seq_length(parts_b, only_shortenable=True):
+                self._remove_last(parts_a)
+            else:
+                self._remove_last(parts_b)
+
+    def get_input_features(self, example: InputExample) -> Tuple[InputFeatures, InputFeatures]:
+        if example.text_b is None:
+            f_a_parts_a = ['This sentence : "', self.shortenable(example.text_a),
+                           '" means ', self.tokenizer.mask_token, '.']
+            feature_a = self.encode(f_a_parts_a, None)
+            f_b_parts_a = ['This sentence of "', self.shortenable(example.text_a),
+                           '" means ', self.tokenizer.mask_token, '.']
+            feature_b = self.encode(f_b_parts_a, None)
+
+            return feature_a, feature_b
+
+        else:
+            f_a_parts_a, f_a_parts_b = ['This sentence : "', self.shortenable(example.text_a)], \
+                                       [self.shortenable(example.text_b), '" means ', self.tokenizer.mask_token, '.']
+            feature_a = self.encode(f_a_parts_a, f_a_parts_b)
+
+            f_b_parts_a, f_b_parts_b = ['This sentence of "', self.shortenable(example.text_a)], \
+                                       [self.shortenable(example.text_b), '" means ', self.tokenizer.mask_token, '.']
+            feature_b = self.encode(f_b_parts_a, f_b_parts_b)
+
+            return feature_a, feature_b
+
+    def generate(self, examples):
+        feature_dict = None
+        if self.args['method'] == 'mlm':
+            feature_dict = self.tokenizer(
+                [(example.text_a, example.text_b) for example in examples],
+                max_length=self.args['max_length'],
+                padding="max_length",
+                truncation=True,
+                return_tensors='pt'
+            )
+        elif self.args['method'] == 'prompt':
+            features_a, features_b = [], []
+            for ex_index, ex in enumerate(examples):
+                feature_a, feature_b = self.get_input_features(ex)
+
+                features_a.append(feature_a)
+                features_b.append(feature_b)
+                # if ex_index < 5:
+                #     logger.info(f'--- Example {ex_index} ---')
+                #     logger.info(feature_a.pretty_print(self.tokenizer))
+                #     logger.info(feature_b.pretty_print(self.tokenizer))
+
+            feature_dict = {
+                'input_ids_a': torch.tensor([f.input_ids for f in features_a], dtype=torch.long),
+                'attention_mask_a': torch.tensor([f.attention_mask for f in features_a], dtype=torch.long),
+                'token_type_ids_a': torch.tensor([f.token_type_ids for f in features_a], dtype=torch.long),
+                'mlm_labels_a': torch.tensor([f.mlm_labels for f in features_a], dtype=torch.long),
+
+                'input_ids_b': torch.tensor([f.input_ids for f in features_b], dtype=torch.long),
+                'attention_mask_b': torch.tensor([f.attention_mask for f in features_b], dtype=torch.long),
+                'token_type_ids_b': torch.tensor([f.token_type_ids for f in features_b], dtype=torch.long),
+                'mlm_labels_b': torch.tensor([f.mlm_labels for f in features_b], dtype=torch.long),
+            }
+
+        return DictDataset(**feature_dict)
+
+
+if __name__ == '__main__':
+    AdaptTrainer('mlm', './data/sst-2', './log', './model/bert-base-uncased',
+                 'sst-2', 64, 0.01, 100, 'cpu', 1).train()
