@@ -162,6 +162,22 @@ class ColaPVP(PVP):
         return ColaPVP.VERBALIZER[label]
 
 
+class QnliPVP(PVP):
+    VERBALIZER = {
+        "entailment": "Yes",
+        "not_entailment": "No"
+    }
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        text_b = self.shortenable(example.text_b)
+
+        return [text_a, '?'], [self.mask, ',', text_b]
+
+    def verbalize(self, label) -> str:
+        return QnliPVP.VERBALIZER[label]
+
+
 class MnliPVP(PVP):
     VERBALIZER = {
         "contradiction": "No",
@@ -181,7 +197,11 @@ class MnliPVP(PVP):
 
 
 
+
+
+
 PVPS = {
     'mnli': MnliPVP,
-    'cola': ColaPVP
+    'cola': ColaPVP,
+    'qnli': QnliPVP
 }
