@@ -16,6 +16,8 @@ def main():
     # required parameters
     parser.add_argument("--method", required=True, choices=METHODS,
                         help="The training method to use.")
+    parser.add_argument("--adapt_method", required=True, choices=['prompt', 'mlm'],
+                        help="The adapt training method to use.")
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the data files for the task.")
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
@@ -27,7 +29,7 @@ def main():
                              "than this will be truncated, sequences shorter will be padded.")
 
     # dataset parameters
-    parser.add_argument("--train_examples", default=0.1, type=float,
+    parser.add_argument("--train_examples", default=0.01, type=float,
                         help="<= 1 means the ratio to total train examples, > 1 means the number of train examples.")
     parser.add_argument("--dev_examples", default=1.0, type=float,
                         help="<= 1 means the ratio to total train examples, > 1 means the number of train examples.")
@@ -66,7 +68,7 @@ def main():
     args.output_dir = os.path.join('./output', args.task_name, args.model_name_or_path.split('/')[-1], get_local_time())
 
     # Init logger
-    # init_logger(args.output_dir)
+    init_logger(args.output_dir)
     logger = getLogger()
 
     # Parameters addition
