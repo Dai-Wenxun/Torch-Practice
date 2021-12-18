@@ -1,3 +1,0 @@
-## baseline
-bash run.sh  seq_cls ./model/bert-base-uncased cola 0.1
-
