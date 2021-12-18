@@ -7,7 +7,7 @@ from numpy import mean, std
 from trainer import Trainer
 from utils import set_seed
 from tasks import load_examples, DEV_SET
-from domain_adapt import API_Adapt
+from domain_adapt import AdaptTrainer
 
 logger = getLogger()
 
@@ -24,7 +24,7 @@ def logger_helper(results, metrics):
                  f"std_{metric}: {round(std(avg_scores[metric]), 2)}" for metric in metrics])
 
 
-def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path='output/cola/bert-base-uncased/21-1214-0924'):
+def train_single_model(trainer: Trainer, adapt_only=True, pretrained_path=None):
     args = trainer.args
     fine_tune_results = []
     fine_tune_with_adapted_results = []
@@ -37,9 +37,10 @@ def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path='outp
 
         if not pretrained_path:
             checkpoint_path = os.path.join(args.output_dir, f'Seed-{domain_seed}')
-            logger.info('\nDomain adaptation start:')
-            train_data = API_Adapt(args.data_dir, checkpoint_path, args.model_name_or_path,
-                                   args.task_name, args.max_length, 1.0-args.train_examples, domain_seed)
+            logger.info(f'\n{args.adapt_method} domain adaptation start:')
+            train_data = AdaptTrainer(args.adapt_method, args.data_dir, checkpoint_path, args.model_name_or_path,
+                                      args.task_name, args.max_length, 1.0-args.train_examples, domain_seed, args.device,
+                                      args.n_gpu).train()
         else:
             checkpoint_path = os.path.join(pretrained_path, f'Seed-{domain_seed}')
             with open(os.path.join(checkpoint_path, 'examples.bin'), 'rb') as f:
@@ -49,14 +50,17 @@ def train_single_model(trainer: Trainer, adapt_only=False, pretrained_path='outp
             for fine_tune_repetition in range(args.repetitions):
                 fine_tune_seed = args.seed[fine_tune_repetition]
                 set_seed(fine_tune_seed)
-                logger.info(f'Domain:{domain_repetition}, Seed:{domain_seed}'
-                            f' Finetune:{fine_tune_repetition}-Seed:{fine_tune_seed}')
 
-                # logger.info("Fine tune with adaptation start: ")
-                # fine_tune_with_adapted_results.append(trainer.train(train_data, eval_data=eval_data,
-                #                                                     checkpoint_path=checkpoint_path))
-                logger.info("Fine tune without adaptation start: ")
-                fine_tune_results.append(trainer.train(train_data, eval_data=eval_data))
+                info = f'Domain{domain_repetition}Seed{domain_seed}Finetune{fine_tune_repetition}Seed{fine_tune_seed}'
+                logger.info(info)
+
+                logger.info("Fine tune with adaptation start: ")
+                args.saved_path = os.path.join(args.output_dir, info, 'adapted')
+                fine_tune_with_adapted_results.append(trainer.train(train_data, eval_data=eval_data,
+                                                                    checkpoint_path=checkpoint_path))
+                # logger.info("Fine tune without adaptation start: ")
+                # args.saved_path = os.path.join(args.output_dir, info, 'non-adapted')
+                # fine_tune_results.append(trainer.train(train_data, eval_data=eval_data))
 
     if not adapt_only:
         logger.info('Fine tune without adaptation results:')
