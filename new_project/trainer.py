@@ -17,6 +17,7 @@ from scipy.stats import spearmanr, pearsonr
 from tasks import InputFeatures, DictDataset
 from utils import early_stopping, sigmoid
 from preprocessor import SequenceClassifierPreprocessor, MLMPreprocessor
+from model import BertForPromptClassification
 
 logger = getLogger()
 
@@ -192,7 +193,7 @@ class Trainer:
         results['logits'] = preds
         results['labels'] = out_label_ids
 
-        if len(self.args.label_list) == 2:
+        if len(self.args.label_list) == 2 and self.args.train_type == SEQ_CLS_TYPE:
             results['predictions'] = np.array(sigmoid(results['logits'].reshape(-1)) > 0.5, dtype=np.int64)
         else:
             results['predictions'] = np.argmax(results['logits'], axis=1)
@@ -241,8 +242,11 @@ class Trainer:
             loss = nn.CrossEntropyLoss()(logits.view(-1, num_labels), labels.view(-1))
         return loss
 
-    def mlm_eval_step(self):
-        pass
+    def mlm_eval_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Perform a MLM evaluation step."""
+        inputs = self._generate_default_inputs(batch)
+        outputs = self.model(**inputs)
+        return self.preprocessor.pvp.convert_mlm_logits_to_cls_logits(batch['mlm_labels'], outputs[0])
 
     def seq_cls_eval_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         inputs = self._generate_default_inputs(batch)
@@ -278,12 +282,10 @@ class Trainer:
         return features
 
     def _save(self) -> None:
-        # saved_path = os.path.join(self.args.output_dir, 'finetuned_model')
-        # model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-        # model_to_save.save_pretrained(saved_path)
-        # self.tokenizer.save_pretrained(saved_path)
-        # logger.info(f"Model saved at {saved_path}")
-        pass
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        model_to_save.save_pretrained(self.args.saved_path)
+        self.tokenizer.save_pretrained(self.args.saved_path)
+        logger.info(f"Model saved at {self.args.saved_path}")
 
     def _init_model(self, checkpoint_path=None):
         if checkpoint_path:
