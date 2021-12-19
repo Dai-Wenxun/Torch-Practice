@@ -18,6 +18,7 @@ from tasks import InputFeatures, DictDataset
 from utils import early_stopping, sigmoid
 from preprocessor import SequenceClassifierPreprocessor, MLMPreprocessor
 from model import BertForPromptClassification
+from domain_adapt import DatasetGenerator
 
 logger = getLogger()
 
@@ -266,14 +267,16 @@ class Trainer:
             'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long),
             'labels': torch.tensor([f.label for f in features]),  # might be float
             'mlm_labels': torch.tensor([f.mlm_labels for f in features], dtype=torch.long),
-            'logits': torch.tensor([f.logits for f in features], dtype=torch.float),
         }
 
         return DictDataset(**feature_dict)
 
     def _convert_examples_to_features(self, examples: List[InputExample]) -> List[InputFeatures]:
         features = []
+        if self.args.adapt_method == 'prompt':
+            preprocessor = DatasetGenerator(self.args, self.tokenizer)
         for (ex_index, example) in enumerate(examples):
+                input_features =
             input_features = self.preprocessor.get_input_features(example)
             features.append(input_features)
             # if ex_index < 5:
@@ -295,8 +298,13 @@ class Trainer:
 
         if self.args.train_type == SEQ_CLS_TYPE:
             num_labels = len(self.args.label_list) if len(self.args.label_list) != 2 else 1
-            self.model = BertForSequenceClassification.from_pretrained(
-                model_name_or_path, num_labels=num_labels).to(self.args.device)
+            if self.args.adapt_method == 'prompt':
+                self.model = BertForPromptClassification.from_pretrained(
+                    model_name_or_path, num_labels=num_labels).to(self.args.device)
+            elif self.args.adapt_method == 'mlm':
+                self.model = BertForSequenceClassification.from_pretrained(
+                    model_name_or_path, num_labels=num_labels).to(self.args.device)
+
         elif self.args.train_type == MLM_TYPE:
             self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(self.args.device)
         logger.info(f'Load parameters from {model_name_or_path}')
