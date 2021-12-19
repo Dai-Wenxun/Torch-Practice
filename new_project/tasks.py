@@ -35,13 +35,12 @@ class InputExample:
 
 
 class InputFeatures:
-    def __init__(self, input_ids, attention_mask, token_type_ids, label=None, mlm_labels=None, logits=None):
+    def __init__(self, input_ids, attention_mask, token_type_ids, label=None, mlm_labels=None):
         self.input_ids = input_ids
         self.attention_mask = attention_mask
         self.token_type_ids = token_type_ids
-        self.label = label
-        self.mlm_labels = mlm_labels
-        self.logits = logits
+        self.label = label if label else -100
+        self.mlm_labels = mlm_labels if mlm_labels else -1
 
     def __repr__(self):
         return str(self.to_json_string())
