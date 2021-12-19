@@ -11,7 +11,7 @@ class BertPooler(nn.Module):
     def forward(self, hidden_states, mlm_labels):
         # We "pool" the model by simply taking the hidden state corresponding
         # to the first token.
-        first_token_tensor = hidden_states[mlm_labels > 0]
+        first_token_tensor = hidden_states[mlm_labels >= 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -46,5 +46,6 @@ class BertForPromptClassification(BertPreTrainedModel):
 
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
+        outputs = (logits, )
 
-        return logits
+        return outputs
