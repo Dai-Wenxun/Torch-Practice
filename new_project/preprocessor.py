@@ -10,25 +10,43 @@ class Preprocessor(ABC):
         self.tokenizer = tokenizer
         self.args = args
         self.label_map = {label: i for i, label in enumerate(args.label_list)}
-        if self.args.train_type == "mlm_type":
-            self.pvp = PVPS[self.args.task_name](args, tokenizer)
 
     @abstractmethod
     def get_input_features(self, example: InputExample) -> InputFeatures:
         """Convert the given example into a set of input features"""
         pass
 
-
-class SequenceClassifierPreprocessor(Preprocessor):
-    """Preprocessor for a regular sequence classification model."""
-
-    def get_input_features(self, example: InputExample, adaptation: bool = False) -> InputFeatures:
+    def raw_process(self, example: InputExample):
         inputs = self.tokenizer(
             example.text_a if example.text_a else None,
             example.text_b if example.text_b else None,
             max_length=self.args.max_length,
             padding="max_length",
-            truncation=True,
+            truncation=True
+        )
+        return inputs
+
+
+class MLMAdaptPreprocessor(Preprocessor):
+
+    def get_input_features(self, example: InputExample) -> InputFeatures:
+        inputs = self.raw_process(example)
+        return InputFeatures(**inputs)
+
+
+
+
+
+class SequenceClassifierPreprocessor(Preprocessor):
+    """Preprocessor for a regular sequence classification model."""
+
+    def get_input_features(self, example: InputExample) -> InputFeatures:
+        inputs = self.tokenizer(
+            example.text_a if example.text_a else None,
+            example.text_b if example.text_b else None,
+            max_length=self.args.max_length,
+            padding="max_length",
+            truncation=True
         )
         output_mode = OUTPUT_MODES[self.args.task_name]
 
