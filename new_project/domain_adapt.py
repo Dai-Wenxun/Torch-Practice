@@ -29,7 +29,7 @@ class AdaptTrainer:
                  seed,
                  device, 
                  n_gpu, 
-                 per_gpu_train_batch_size=8,
+                 per_gpu_train_batch_size=64,
                  gradient_accumulation_steps=1,
                  max_steps=-1,
                  num_train_epochs=5,
@@ -42,6 +42,8 @@ class AdaptTrainer:
                  mask_ratio=0.15,
                  temperature=0.05
                  ):
+        if method == 'prompt':
+            n_gpu = 1
         self.args = locals()
         if method == 'prompt':
             self.model = BertModel.from_pretrained(model_name_or_path, add_pooling_layer=False).to(device)
@@ -354,5 +356,10 @@ class DatasetGenerator(ABC):
 
 
 if __name__ == '__main__':
-    AdaptTrainer('mlm', './data/sst-2', './log', './model/bert-base-uncased',
-                 'sst-2', 64, 0.01, 100, 'cpu', 1).train()
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    AdaptTrainer('prompt', './data/sst-2', './log', './model/bert-base-uncased',
+                 'sst-2', 64, 0.99, 100, 'cuda', 4).train()
+    #
+    # set_seed(self.args['seed'])
+    # examples, fine_tune_examples = load_examples(self.args['task_name'], './data/sst-2', TRAIN_SET,
+    #                                              num_examples=0.99, seed=100)
