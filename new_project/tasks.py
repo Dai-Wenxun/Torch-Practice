@@ -478,7 +478,7 @@ TEST_SET = "test"
 SET_TYPES = [TRAIN_SET, DEV_SET, TEST_SET]
 
 
-def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = None, threshold=100000) \
+def load_examples(task, data_dir: str, set_type: str, num_examples: float, seed: int = 520, threshold=100000) \
         -> Tuple[List[InputExample], List[InputExample]]:
     processor = PROCESSORS[task]()
 

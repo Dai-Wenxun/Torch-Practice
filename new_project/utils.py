@@ -24,6 +24,7 @@ def get_local_time():
 def beautify(args):
     args_info = '\n'
     args_info += f"method={args.method}\n"
+    args_info += f"adapt_method={args.adapt_method}\n"
     args_info += f"data_dir={args.data_dir}\n"
     args_info += f"model_name_or_path={args.model_name_or_path}\n"
     args_info += f"task_name={args.task_name}\n"
@@ -52,7 +53,6 @@ def beautify(args):
     args_info += f"metrics={args.metrics}\n"
     args_info += f"device={args.device}\n"
     args_info += f"n_gpu={args.n_gpu}\n"
-    args_info += f"train_type={args.train_type}\n"
     # args_info += f"={args.}\n"
     return args_info
 

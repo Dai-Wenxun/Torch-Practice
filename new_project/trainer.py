@@ -16,35 +16,34 @@ from scipy.stats import spearmanr, pearsonr
 
 from tasks import InputFeatures, DictDataset
 from utils import early_stopping, sigmoid
-from preprocessor import SequenceClassifierPreprocessor, MLMPreprocessor
+from preprocessor import SequenceClassifierPreprocessor, MLMPreprocessor, PromptClassifierPreprocessor
 from model import BertForPromptClassification
-from domain_adapt import DatasetGenerator
 
 logger = getLogger()
 
-SEQ_CLS_TYPE = 'seq_cls_type'
-MLM_TYPE = 'mlm_type'
+SEQ_CLS_TYPE = 'seq_cls'
+MLM_TYPE = 'mlm'
+PROMPT_SEQ_CLS_TYPE = 'prompt_seq_cls'
 
-SEQ_CLS = 'seq_cls'
-HARD_PROMPT_MLM = 'hrd_prp_mlm'
-SOFT_PROMPT_MLM = 'sft_prp_mlm'
-HYBRID_PROMPT_MLM = 'hybrid_prp_mlm'
 
-METHODS = [SEQ_CLS, HARD_PROMPT_MLM, SOFT_PROMPT_MLM, HYBRID_PROMPT_MLM]
+METHODS = [SEQ_CLS_TYPE, MLM_TYPE, PROMPT_SEQ_CLS_TYPE]
 
 PREPROCESSORS = {
     SEQ_CLS_TYPE: SequenceClassifierPreprocessor,
     MLM_TYPE: MLMPreprocessor,
+    PROMPT_SEQ_CLS_TYPE: PromptClassifierPreprocessor
 }
 
 EVALUATION_STEP_FUNCTIONS = {
     SEQ_CLS_TYPE: lambda trainer: trainer.seq_cls_eval_step,
-    MLM_TYPE: lambda trainer: trainer.mlm_eval_step
+    MLM_TYPE: lambda trainer: trainer.mlm_eval_step,
+    PROMPT_SEQ_CLS_TYPE: lambda trainer: trainer.seq_cls_eval_step
 }
 
 TRAIN_STEP_FUNCTIONS = {
     SEQ_CLS_TYPE: lambda trainer: trainer.seq_cls_train_step,
-    MLM_TYPE: lambda trainer: trainer.mlm_train_step
+    MLM_TYPE: lambda trainer: trainer.mlm_train_step,
+    PROMPT_SEQ_CLS_TYPE: lambda trainer: trainer.seq_cls_train_step
 }
 
 
@@ -54,15 +53,15 @@ class Trainer:
         self.model = None
         self.tokenizer = BertTokenizer.from_pretrained(self.args.model_name_or_path)
         # self.writer = SummaryWriter(os.path.join(self.args.output_dir, 'runs'))
-        self.preprocessor = PREPROCESSORS[self.args.train_type](self.tokenizer, self.args)
-        self.train_step = TRAIN_STEP_FUNCTIONS[self.args.train_type](self)
-        self.eval_step = EVALUATION_STEP_FUNCTIONS[self.args.train_type](self)
+        self.preprocessor = PREPROCESSORS[self.args.method](self.args, self.tokenizer)
+        self.train_step = TRAIN_STEP_FUNCTIONS[self.args.method](self)
+        self.eval_step = EVALUATION_STEP_FUNCTIONS[self.args.method](self)
 
-    def train(self, train_data: List[InputExample], eval_data: List[InputExample] = None,
+    def train(self, train_examples: List[InputExample], eval_examples: List[InputExample] = None,
               checkpoint_path: str = None) -> Dict:
         self._init_model(checkpoint_path)
         train_batch_size = self.args.per_gpu_train_batch_size * max(1, self.args.n_gpu)
-        train_dataset = self._generate_dataset(train_data)
+        train_dataset = self._generate_dataset(train_examples)
         train_sampler = RandomSampler(train_dataset)
         train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
 
@@ -71,7 +70,7 @@ class Trainer:
             self.args.num_train_epochs = self.args.max_steps // \
                                          (max(1, len(train_dataloader) // self.args.gradient_accumulation_steps)) + 1
         else:
-            t_total = len(train_dataloader) // self.args.gradient_accumulatin_steps * self.args.num_train_epochs
+            t_total = len(train_dataloader) // self.args.gradient_accumulation_steps * self.args.num_train_epochs
 
         if self.args.stopping_steps < 0:
             self.args.stopping_steps = t_total
@@ -134,7 +133,7 @@ class Trainer:
                         logging_loss = tr_loss
                         logger.info(json.dumps(logs))
 
-                        scores = self.eval(eval_data)['scores']
+                        scores = self.eval(eval_examples)['scores']
                         logger.info(json.dumps(scores))
                         # self.writer.add_scalars('metrics', scores, global_step)
                         valid_score = scores[self.args.metrics[0]]
@@ -162,10 +161,10 @@ class Trainer:
 
         return best_res
 
-    def eval(self, eval_data: List[InputExample]) -> Dict:
+    def eval(self, eval_examples: List[InputExample]) -> Dict:
         self.model.to(self.args.device)
 
-        eval_dataset = self._generate_dataset(eval_data)
+        eval_dataset = self._generate_dataset(eval_examples)
         eval_batch_size = self.args.per_gpu_eval_batch_size * max(1, self.args.n_gpu)
         eval_sampler = SequentialSampler(eval_dataset)
         eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=eval_batch_size)
@@ -194,7 +193,7 @@ class Trainer:
         results['logits'] = preds
         results['labels'] = out_label_ids
 
-        if len(self.args.label_list) == 2 and self.args.train_type == SEQ_CLS_TYPE:
+        if len(self.args.label_list) == 2 and self.args.method in [SEQ_CLS_TYPE, PROMPT_SEQ_CLS_TYPE]:
             results['predictions'] = np.array(sigmoid(results['logits'].reshape(-1)) > 0.5, dtype=np.int64)
         else:
             results['predictions'] = np.argmax(results['logits'], axis=1)
@@ -253,10 +252,11 @@ class Trainer:
         inputs = self._generate_default_inputs(batch)
         return self.model(**inputs)[0]
 
-    @staticmethod
-    def _generate_default_inputs(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _generate_default_inputs(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         inputs = {'input_ids': batch['input_ids'], 'attention_mask': batch['attention_mask'],
                   'token_type_ids': batch['token_type_ids']}
+        if self.args.method == PROMPT_SEQ_CLS_TYPE:
+            inputs['mlm_labels'] = batch['mlm_labels']
         return inputs
 
     def _generate_dataset(self, examples: List[InputExample]):
@@ -266,17 +266,14 @@ class Trainer:
             'attention_mask': torch.tensor([f.attention_mask for f in features], dtype=torch.long),
             'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long),
             'labels': torch.tensor([f.label for f in features]),  # might be float
-            'mlm_labels': torch.tensor([f.mlm_labels for f in features], dtype=torch.long),
+            'mlm_labels': torch.tensor([f.mlm_labels for f in features], dtype=torch.long)
         }
 
         return DictDataset(**feature_dict)
 
     def _convert_examples_to_features(self, examples: List[InputExample]) -> List[InputFeatures]:
         features = []
-        if self.args.adapt_method == 'prompt':
-            preprocessor = DatasetGenerator(self.args, self.tokenizer)
         for (ex_index, example) in enumerate(examples):
-                input_features =
             input_features = self.preprocessor.get_input_features(example)
             features.append(input_features)
             # if ex_index < 5:
@@ -296,15 +293,15 @@ class Trainer:
         else:
             model_name_or_path = self.args.model_name_or_path
 
-        if self.args.train_type == SEQ_CLS_TYPE:
+        if self.args.method in [SEQ_CLS_TYPE, PROMPT_SEQ_CLS_TYPE]:
             num_labels = len(self.args.label_list) if len(self.args.label_list) != 2 else 1
-            if self.args.adapt_method == 'prompt':
+            if self.args.method == PROMPT_SEQ_CLS_TYPE:
                 self.model = BertForPromptClassification.from_pretrained(
                     model_name_or_path, num_labels=num_labels).to(self.args.device)
-            elif self.args.adapt_method == 'mlm':
+            elif self.args.method == SEQ_CLS_TYPE:
                 self.model = BertForSequenceClassification.from_pretrained(
                     model_name_or_path, num_labels=num_labels).to(self.args.device)
-
-        elif self.args.train_type == MLM_TYPE:
+        elif self.args.method == MLM_TYPE:
             self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(self.args.device)
+
         logger.info(f'Load parameters from {model_name_or_path}')

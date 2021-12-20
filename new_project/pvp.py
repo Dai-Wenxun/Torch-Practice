@@ -21,6 +21,7 @@ import torch
 from transformers import BertTokenizer
 from logging import getLogger
 from tasks import InputExample
+from adapt_config import AdaptConfig
 
 logger = getLogger()
 
@@ -28,40 +29,25 @@ FilledPattern = Tuple[List[Union[str, Tuple[str, bool]]], List[Union[str, Tuple[
 
 
 class PVP(ABC):
-    def __init__(self, args, tokenizer: BertTokenizer, seed: int = 42):
+    def __init__(self, args, tokenizer: BertTokenizer, pattern_id):
         self.args = args
         self.tokenizer = tokenizer
-        self.rng = random.Random(seed)
-        self.mlm_logits_to_cls_logits_tensor = self._build_mlm_logits_to_cls_logits_tensor()
-
-    def _build_mlm_logits_to_cls_logits_tensor(self):
-        label_list = self.args.label_list
-        m2c_tensor = torch.ones(len(label_list), dtype=torch.long) * -1
-
-        for label_idx, label in enumerate(label_list):
-            verbalizer = self.verbalize(label)
-            verbalizer_id = self.tokenizer.encode(verbalizer, add_special_tokens=False)[0]
-            m2c_tensor[label_idx] = verbalizer_id
-        return m2c_tensor
+        self.pattern_id = pattern_id
 
     @property
     def mask(self) -> str:
-        """Return the underlying LM's mask token"""
         return self.tokenizer.mask_token
 
     @property
     def mask_id(self) -> int:
-        """Return the underlying LM's mask id"""
         return self.tokenizer.mask_token_id
 
     @staticmethod
     def shortenable(s):
-        """Return an instance of this string that is marked as shortenable"""
         return s, True
 
     @staticmethod
     def remove_final_punc(s: str):
-        """Remove the final punctuation mark"""
         return s.rstrip(string.punctuation)
 
     def encode(self, example: InputExample) -> Tuple[List[int], List[int]]:
@@ -137,12 +123,23 @@ class PVP(ABC):
         labels[label_idx] = 1
         return labels
 
+    def _build_mlm_logits_to_cls_logits_tensor(self):
+        label_list = self.args.label_list
+        m2c_tensor = torch.ones(len(label_list), dtype=torch.long) * -1
+
+        for label_idx, label in enumerate(label_list):
+            verbalizer = self.verbalize(label)
+            verbalizer_id = self.tokenizer.encode(verbalizer, add_special_tokens=False)[0]
+            m2c_tensor[label_idx] = verbalizer_id
+        return m2c_tensor
+
     def convert_mlm_logits_to_cls_logits(self, mlm_labels: torch.Tensor, logits: torch.Tensor) -> torch.Tensor:
         masked_logits = logits[mlm_labels >= 0]
         cls_logits = torch.stack([self._convert_single_mlm_logits_to_cls_logits(ml) for ml in masked_logits])
         return cls_logits
 
     def _convert_single_mlm_logits_to_cls_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        self.mlm_logits_to_cls_logits_tensor = self._build_mlm_logits_to_cls_logits_tensor()
         m2c = self.mlm_logits_to_cls_logits_tensor.to(logits.device)
         cls_logits = logits[m2c]
         return cls_logits  # cls_logits.shape() == num_labels
@@ -195,9 +192,26 @@ class MnliPVP(PVP):
         return MnliPVP.VERBALIZER[label]
 
 
+class PromptPVP(PVP):
 
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        if example.text_b is None:
+            if self.pattern_id == 0:
+                return ['This sentence : "', self.shortenable(example.text_a),
+                        '" means ', self.tokenizer.mask_token, '.'], []
+            elif self.pattern_id == 1:
+                return ['This sentence of "', self.shortenable(example.text_a),
+                        '" means ', self.tokenizer.mask_token, '.'], []
+        else:
+            if self.pattern_id == 0:
+                return ['This sentence : "', self.shortenable(example.text_a), '?'], \
+                       [self.shortenable(example.text_b), '" means ', self.tokenizer.mask_token, '.']
+            elif self.pattern_id == 1:
+                return ['This sentence of "', self.shortenable(example.text_a), '?'], \
+                       [self.shortenable(example.text_b), '" means ', self.tokenizer.mask_token, '.']
 
-
+    def verbalize(self, label) -> List[str]:
+        pass
 
 
 PVPS = {
