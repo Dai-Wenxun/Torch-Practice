@@ -3,61 +3,25 @@ import torch
 import json
 import pickle
 import torch.nn as nn
-from abc import ABC
 from tqdm import tqdm
-from typing import Tuple, List
+from typing import List
 from logging import getLogger
 from transformers import BertForMaskedLM, BertModel, BertTokenizer, AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from tasks import DictDataset, load_examples, TRAIN_SET, InputExample, InputFeatures
+from tasks import DictDataset, load_examples, TRAIN_SET, InputExample
 from utils import set_seed
 from preprocessor import MLMAdaptPreprocessor, PromptPreprocessor
+from adapt_config import AdaptConfig, MLM_ADAPT, PROMPT_ADAPT
 
 logger = getLogger()
 
-MLM_ADAPT = 'mlm_adapt'
-PROMPT_ADAPT = 'prompt_adapt'
-
-ADAPT_METHODS = [MLM_ADAPT, PROMPT_ADAPT]
 
 PREPROCESSORS = {
     MLM_ADAPT: lambda args, tokenizer: MLMAdaptPreprocessor(args, tokenizer),
     PROMPT_ADAPT: lambda args, tokenizer: [PromptPreprocessor(args, tokenizer, 0), PromptPreprocessor(args, tokenizer, 1)]
 }
-
-
-class AdaptConfig:
-    method = None
-    data_dir = None
-    output_dir = None
-    model_name_or_path = None
-    task_name = None
-    max_length = None
-    train_examples = None
-    seed = None
-    device = None
-    n_gpu = None
-    per_gpu_train_batch_size = 64
-    gradient_accumulation_steps = 1
-    max_steps = -1
-    num_train_epochs = 5
-    logging_steps = 50
-    warmup_steps = 0
-    learning_rate = 5e-5
-    weight_decay = 0.01
-    adam_epsilon = 1e-8
-    max_grad_norm = 1.0
-    mask_ratio = 0.15
-    temperature = 0.05
-
-    def __init__(self, config_dict: dict):
-        for k, v in config_dict.items():
-            setattr(self, k, v)
-
-        if self.method == PROMPT_ADAPT:
-            self.n_gpu = 1
 
 
 class AdaptTrainer:
@@ -68,7 +32,6 @@ class AdaptTrainer:
                  model_name_or_path,
                  task_name,
                  max_length,
-                 train_examples,
                  seed,
                  device, 
                  n_gpu
@@ -83,14 +46,10 @@ class AdaptTrainer:
 
         self.tokenizer = BertTokenizer.from_pretrained(model_name_or_path)
         self.writer = SummaryWriter(output_dir)
-        self.preprocessor = PREPROCESSORS[method](self.tokenizer, self.args)
+        self.preprocessor = PREPROCESSORS[method](self.args, self.tokenizer)
 
-    def train(self):
-        set_seed(self.args.seed)
-        examples, fine_tune_examples = load_examples(self.args.task_name, self.args.data_dir, TRAIN_SET,
-                                                     num_examples=self.args.train_examples, seed=self.args.seed)
-
-        train_dataset = self._generate_dataset(examples)
+    def train(self, train_examples):
+        train_dataset = self._generate_dataset(train_examples)
 
         train_sampler = RandomSampler(train_dataset)
         train_batch_size = self.args.per_gpu_train_batch_size * max(1, self.args.n_gpu)
@@ -170,8 +129,6 @@ class AdaptTrainer:
         model_to_save.save_pretrained(self.args.output_dir)
         self.tokenizer.save_pretrained(self.args.output_dir)
         logger.info(f"Model saved at {self.args.output_dir}")
-        with open(os.path.join(self.args.output_dir, 'examples.bin'), 'wb') as f:
-            pickle.dump(fine_tune_examples, f)
 
         # Clear cache
         self.model = None
@@ -187,13 +144,15 @@ class AdaptTrainer:
                     'token_type_ids': batch['token_type_ids_a']}
         mlm_labels_a = batch['mlm_labels_a']
 
-        logits_a = self.model(**inputs_a)[0][mlm_labels_a >= 0]
+        logits_a = self.model(**inputs_a)[0]
+        logits_a = logits_a[mlm_labels_a >= 0]
 
         inputs_b = {'input_ids': batch['input_ids_b'], 'attention_mask': batch['attention_mask_b'],
                     'token_type_ids': batch['token_type_ids_b']}
         mlm_labels_b = batch['mlm_labels_b']
 
-        logits_b = self.model(**inputs_b)[0][mlm_labels_b >= 0]
+        logits_b = self.model(**inputs_b)[0]
+        logits_b = logits_b[mlm_labels_b >= 0]
 
         cos_sim = nn.CosineSimilarity(dim=-1)(logits_a.unsqueeze(1), logits_b.unsqueeze(0)) / self.args.temperature
 
@@ -297,5 +256,5 @@ class AdaptTrainer:
 
 if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-    AdaptTrainer('prompt', './data/sst-2', './log', './model/bert-base-uncased',
-                 'sst-2', 64, 0.99, 100, 'cuda', 4).train()
+    AdaptTrainer(PROMPT_ADAPT, './data/sst-2', './log', './model/bert-base-uncased',
+                 'sst-2', 64, 0.01, 100, 'cuda', 4).train()

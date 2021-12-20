@@ -5,6 +5,7 @@ from logging import getLogger
 
 from logger import init_logger
 from tasks import PROCESSORS, METRICS, DEFAULT_METRICS
+from adapt_config import ADAPT_METHODS
 from trainer import Trainer, METHODS
 from utils import beautify, get_local_time
 from modeling import train_single_model
@@ -16,7 +17,7 @@ def main():
     # required parameters
     parser.add_argument("--method", required=True, choices=METHODS,
                         help="The training method to use.")
-    parser.add_argument("--adapt_method", required=True, choices=['prompt', 'mlm'],
+    parser.add_argument("--adapt_method", required=True, choices=ADAPT_METHODS,
                         help="The adapt training method to use.")
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the data files for the task.")
@@ -76,10 +77,6 @@ def main():
     args.metrics = METRICS.get(args.task_name, DEFAULT_METRICS)
     args.device = "cuda" if torch.cuda.is_available() else "cpu"
     args.n_gpu = torch.cuda.device_count()
-    if args.method.endswith('mlm'):
-        args.train_type = 'mlm_type'
-    else:
-        args.train_type = 'seq_cls_type'
 
     logger.info("Parameters: {}".format(beautify(args)))
 
@@ -89,5 +86,5 @@ def main():
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3, 2, 1, 0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2, 1, 0, 3"
     main()
