@@ -1,7 +1,6 @@
 import os
 import torch
 import json
-import pickle
 import torch.nn as nn
 from tqdm import tqdm
 from typing import List
@@ -10,8 +9,8 @@ from transformers import BertForMaskedLM, BertModel, BertTokenizer, AdamW, get_l
 from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from tasks import DictDataset, load_examples, TRAIN_SET, InputExample
-from utils import set_seed
+from tasks import DictDataset, InputExample
+from utils import split_examples
 from preprocessor import MLMAdaptPreprocessor, PromptPreprocessor
 from adapt_config import AdaptConfig, MLM_ADAPT, PROMPT_ADAPT
 
@@ -215,12 +214,13 @@ class AdaptTrainer:
     def _generate_dataset(self, examples: List[InputExample]):
         feature_dict = dict()
         if self.args.method == PROMPT_ADAPT:
+            new_examples = split_examples(examples)
             features = []
-            for ex_index, example in enumerate(examples):
+            for ex_index, example in enumerate(new_examples):
                 feature_a = self.preprocessor[0].get_input_features(example)
                 feature_b = self.preprocessor[1].get_input_features(example)
                 features.append((feature_a, feature_b))
-                if ex_index < 5:
+                if ex_index < 1:
                     logger.info(f'--- Example {ex_index} ---')
                     logger.info(feature_a.pretty_print(self.tokenizer))
                     logger.info(feature_b.pretty_print(self.tokenizer))
@@ -254,7 +254,7 @@ class AdaptTrainer:
         return DictDataset(**feature_dict)
 
 
-if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-    AdaptTrainer(PROMPT_ADAPT, './data/sst-2', './log', './model/bert-base-uncased',
-                 'sst-2', 64, 0.01, 100, 'cuda', 4).train()
+# if __name__ == '__main__':
+#     os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+#     AdaptTrainer(PROMPT_ADAPT, './data/sst-2', './log', './model/bert-base-uncased',
+#                  'sst-2', 64, 0.01, 100, 'cuda', 4).train()
