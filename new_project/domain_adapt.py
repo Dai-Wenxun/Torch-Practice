@@ -5,22 +5,52 @@ import torch.nn as nn
 from tqdm import tqdm
 from typing import List
 from logging import getLogger
-from transformers import BertForMaskedLM, BertModel, BertTokenizer, AdamW, get_linear_schedule_with_warmup
+from transformers import BertForMaskedLM, BertTokenizer, AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from tasks import DictDataset, InputExample
-from utils import split_examples
-from preprocessor import MLMAdaptPreprocessor, PromptPreprocessor
-from adapt_config import AdaptConfig, MLM_ADAPT, PROMPT_ADAPT
+from preprocessor import MLMAdaptPreprocessor, PromptMLMAdaptPreprocessor
 
 logger = getLogger()
 
 
+MLM_ADAPT = 'mlm_adapt'
+PROMPT_ADAPT = 'prompt_mlm_adapt'
+
+ADAPT_METHODS = [MLM_ADAPT, PROMPT_ADAPT]
+
 PREPROCESSORS = {
     MLM_ADAPT: lambda args, tokenizer: MLMAdaptPreprocessor(args, tokenizer),
-    PROMPT_ADAPT: lambda args, tokenizer: [PromptPreprocessor(args, tokenizer, 0), PromptPreprocessor(args, tokenizer, 1)]
+    PROMPT_ADAPT: lambda args, tokenizer: PromptMLMAdaptPreprocessor(args, tokenizer)
 }
+
+
+class AdaptConfig:
+    method = None
+    data_dir = None
+    output_dir = None
+    model_name_or_path = None
+    task_name = None
+    max_length = None
+    device = None
+    n_gpu = None
+    pattern_id = None,
+    per_gpu_train_batch_size = 64
+    gradient_accumulation_steps = 1
+    max_steps = -1
+    num_train_epochs = 5
+    logging_steps = 50
+    warmup_steps = 0
+    learning_rate = 5e-5
+    weight_decay = 0.01
+    adam_epsilon = 1e-8
+    max_grad_norm = 1.0
+    mask_ratio = 0.15
+
+    def __init__(self, config_dict: dict):
+        for k, v in config_dict.items():
+            setattr(self, k, v)
 
 
 class AdaptTrainer:
@@ -31,17 +61,14 @@ class AdaptTrainer:
                  model_name_or_path,
                  task_name,
                  max_length,
-                 seed,
                  device, 
-                 n_gpu
+                 n_gpu,
+                 pattern_id
                  ):
         self.args = AdaptConfig(locals())
         self._print_hyper_params()
 
-        if method == PROMPT_ADAPT:
-            self.model = BertModel.from_pretrained(model_name_or_path, add_pooling_layer=False).to(device)
-        elif method == MLM_ADAPT:
-            self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(device)
+        self.model = BertForMaskedLM.from_pretrained(model_name_or_path).to(device)
 
         self.tokenizer = BertTokenizer.from_pretrained(model_name_or_path)
         self.writer = SummaryWriter(output_dir)
@@ -89,12 +116,7 @@ class AdaptTrainer:
             for _, batch in enumerate(epoch_iterator):
                 self.model.train()
                 batch = {k: t.to(self.args.device) for k, t in batch.items()}
-
-                loss = None
-                if self.args.method == PROMPT_ADAPT:
-                    loss = self._prompt_train_step(batch)
-                elif self.args.method == MLM_ADAPT:
-                    loss = self._mlm_train_step(batch)
+                loss = self._mlm_train_step(batch)
 
                 if self.args.n_gpu > 1:
                     loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -136,30 +158,6 @@ class AdaptTrainer:
     def _mlm_train_step(self, batch):
         batch['input_ids'], batch['labels'] = self._mask_tokens(batch['input_ids'])
         loss = self.model(**batch)[0]
-        return loss
-
-    def _prompt_train_step(self, batch):
-        inputs_a = {'input_ids': batch['input_ids_a'], 'attention_mask': batch['attention_mask_a'],
-                    'token_type_ids': batch['token_type_ids_a']}
-        mlm_labels_a = batch['mlm_labels_a']
-
-        logits_a = self.model(**inputs_a)[0]
-        logits_a = logits_a[mlm_labels_a >= 0]
-
-        inputs_b = {'input_ids': batch['input_ids_b'], 'attention_mask': batch['attention_mask_b'],
-                    'token_type_ids': batch['token_type_ids_b']}
-        mlm_labels_b = batch['mlm_labels_b']
-
-        logits_b = self.model(**inputs_b)[0]
-        logits_b = logits_b[mlm_labels_b >= 0]
-
-        cos_sim = nn.CosineSimilarity(dim=-1)(logits_a.unsqueeze(1), logits_b.unsqueeze(0)) / self.args.temperature
-
-        loss_fct = nn.CrossEntropyLoss()
-        labels = torch.arange(cos_sim.size(0)).long().to(self.args.device)
-
-        loss = loss_fct(cos_sim, labels)
-
         return loss
 
     def _mask_tokens(self, input_ids):
@@ -208,53 +206,21 @@ class AdaptTrainer:
         args_info += f"adam_epsilon={self.args.adam_epsilon}\n"
         args_info += f"max_grad_norm={self.args.max_grad_norm}\n"
         args_info += f"mask_ratio={self.args.mask_ratio}\n"
-        args_info += f"temperature={self.args.temperature}\n"
+        args_info += f"pattern_id={self.args.pattern_id}\n"
         logger.info(args_info)
 
     def _generate_dataset(self, examples: List[InputExample]):
-        feature_dict = dict()
-        if self.args.method == PROMPT_ADAPT:
-            new_examples = split_examples(examples)
-            features = []
-            for ex_index, example in enumerate(new_examples):
-                feature_a = self.preprocessor[0].get_input_features(example)
-                feature_b = self.preprocessor[1].get_input_features(example)
-                features.append((feature_a, feature_b))
-                if ex_index < 1:
-                    logger.info(f'--- Example {ex_index} ---')
-                    logger.info(feature_a.pretty_print(self.tokenizer))
-                    logger.info(feature_b.pretty_print(self.tokenizer))
-
-            feature_dict = {
-                'input_ids_a': torch.tensor([f[0].input_ids for f in features], dtype=torch.long),
-                'attention_mask_a': torch.tensor([f[0].attention_mask for f in features], dtype=torch.long),
-                'token_type_ids_a': torch.tensor([f[0].token_type_ids for f in features], dtype=torch.long),
-                'mlm_labels_a': torch.tensor([f[0].mlm_labels for f in features], dtype=torch.long),
-
-                'input_ids_b': torch.tensor([f[1].input_ids for f in features], dtype=torch.long),
-                'attention_mask_b': torch.tensor([f[1].attention_mask for f in features], dtype=torch.long),
-                'token_type_ids_b': torch.tensor([f[1].token_type_ids for f in features], dtype=torch.long),
-                'mlm_labels_b': torch.tensor([f[1].mlm_labels for f in features], dtype=torch.long)
-            }
-
-        elif self.args.method == MLM_ADAPT:
-            features = []
-            for ex_index, example in enumerate(examples):
-                feature = self.preprocessor.get_input_features(example)
-                features.append(feature)
-                if ex_index < 5:
-                    logger.info(f'--- Example {ex_index} ---')
-                    logger.info(feature.pretty_print(self.tokenizer))
-            feature_dict = {
-                'input_ids': torch.tensor([f.input_ids for f in features], dtype=torch.long),
-                'attention_mask': torch.tensor([f.attention_mask for f in features], dtype=torch.long),
-                'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
-            }
+        features = []
+        for ex_index, example in enumerate(examples):
+            feature = self.preprocessor.get_input_features(example)
+            features.append(feature)
+            if ex_index < 1:
+                logger.info(f'--- Example {ex_index} ---')
+                logger.info(feature.pretty_print(self.tokenizer))
+        feature_dict = {
+            'input_ids': torch.tensor([f.input_ids for f in features], dtype=torch.long),
+            'attention_mask': torch.tensor([f.attention_mask for f in features], dtype=torch.long),
+            'token_type_ids': torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+        }
 
         return DictDataset(**feature_dict)
-
-
-# if __name__ == '__main__':
-#     os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-#     AdaptTrainer(PROMPT_ADAPT, './data/sst-2', './log', './model/bert-base-uncased',
-#                  'sst-2', 64, 0.01, 100, 'cuda', 4).train()

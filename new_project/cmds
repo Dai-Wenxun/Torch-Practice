@@ -1,3 +1,3 @@
 
 
-bash run.sh  prompt_seq_cls prompt_adapt ./model/bert-base-uncased sst-2 0.01
+bash run.sh mlm ./model/bert-base-uncased sst-2 0.01
