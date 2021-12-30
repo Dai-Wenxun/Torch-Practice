@@ -13,7 +13,6 @@
 """
 This file contains the pattern-verbalizer pairs (PVPs) for all tasks.
 """
-import random
 import string
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Union
@@ -21,7 +20,6 @@ import torch
 from transformers import BertTokenizer
 from logging import getLogger
 from tasks import InputExample
-from adapt_config import AdaptConfig
 
 logger = getLogger()
 
@@ -33,6 +31,7 @@ class PVP(ABC):
         self.args = args
         self.tokenizer = tokenizer
         self.pattern_id = pattern_id
+        self.mlm_logits_to_cls_logits_tensor = self._build_mlm_logits_to_cls_logits_tensor()
 
     @property
     def mask(self) -> str:
@@ -124,6 +123,8 @@ class PVP(ABC):
         return labels
 
     def _build_mlm_logits_to_cls_logits_tensor(self):
+        if not hasattr(self.args, 'label_list') or self.args.method == 'mlm_pretrain':
+            return
         label_list = self.args.label_list
         m2c_tensor = torch.ones(len(label_list), dtype=torch.long) * -1
 
@@ -139,57 +140,194 @@ class PVP(ABC):
         return cls_logits
 
     def _convert_single_mlm_logits_to_cls_logits(self, logits: torch.Tensor) -> torch.Tensor:
-        self.mlm_logits_to_cls_logits_tensor = self._build_mlm_logits_to_cls_logits_tensor()
         m2c = self.mlm_logits_to_cls_logits_tensor.to(logits.device)
         cls_logits = logits[m2c]
         return cls_logits  # cls_logits.shape() == num_labels
 
 
 class ColaPVP(PVP):
-    VERBALIZER = {
-        "0": "No",
-        "1": "Yes"
-    }
+    VERBALIZER = [
+        {'0': 'proof', '1': 'one'},
+        {'0': 'sad', '1': 'wrong'},
+        {'0': 'disappointing', '1': 'misleading'},
+        {'0': 'no', '1': 'yes'}
+    ]
 
     def get_parts(self, example: InputExample) -> FilledPattern:
-        text_a = self.shortenable(self.remove_final_punc(example.text_a))
-        return [text_a, '?', self.mask], []
+        text_a = self.shortenable(example.text_a)
+
+        if self.pattern_id == 0:
+            return [text_a, 'You are ', self.mask, '.'], []
+        elif self.pattern_id == 1:
+            return ['It is ', self.mask, '.', text_a], []
+        elif self.pattern_id == 2:
+            return ['I am ', self.mask, '.', text_a], []
+        elif self.pattern_id == 3:
+            return [self.shortenable(self.remove_final_punc(text_a[0])), '?', self.mask, '.'], []
 
     def verbalize(self, label) -> str:
-        return ColaPVP.VERBALIZER[label]
-
-
-class QnliPVP(PVP):
-    VERBALIZER = {
-        "entailment": "Yes",
-        "not_entailment": "No"
-    }
-
-    def get_parts(self, example: InputExample) -> FilledPattern:
-        text_a = self.shortenable(self.remove_final_punc(example.text_a))
-        text_b = self.shortenable(example.text_b)
-
-        return [text_a, '?'], [self.mask, ',', text_b]
-
-    def verbalize(self, label) -> str:
-        return QnliPVP.VERBALIZER[label]
+        return ColaPVP.VERBALIZER[self.pattern_id][label]
 
 
 class MnliPVP(PVP):
-    VERBALIZER = {
-        "contradiction": "No",
-        "entailment": "Yes",
-        "neutral": "Maybe"
-    }
+    VERBALIZER = [
+        {"entailment": "Fine", "neutral": "Plus", "contradiction": "Otherwise"},
+        {"entailment": "There", "neutral": "Plus", "contradiction": "Otherwise"},
+        {"entailment": "Meaning", "neutral": "Plus", "contradiction": "Otherwise"},
+        {"entailment": "Yes", "neutral": "Maybe", "contradiction": "No"},
+    ]
 
     def get_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(self.remove_final_punc(example.text_a))
         text_b = self.shortenable(example.text_b)
 
-        return [text_a, '?'], [self.mask, ',', text_b]
+        if self.pattern_id == 0:
+            return [text_a, '.'], [self.mask, ', you are right ,', text_b]
+        elif self.pattern_id == 1:
+            return [text_a, '.'], [self.mask, 'you’re right', text_b]
+        elif self.pattern_id == 2:
+            return [text_a, '.'], [self.mask, "!", text_b]
+        elif self.pattern_id == 3:
+            return [text_a, '?'], [self.mask, ',', text_b]
 
     def verbalize(self, label) -> str:
-        return MnliPVP.VERBALIZER[label]
+        return MnliPVP.VERBALIZER[self.pattern_id][label]
+
+
+class MrpcPVP(PVP):
+    VERBALIZER = [
+        {"0": "Alas", "1": "Rather"},
+        {"0": "Thus", "1": "At"},
+        {"0": "Moreover", "1": "Instead"},
+        {"0": 'No', "1": "Yes"}
+    ]
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        text_b = self.shortenable(example.text_b)
+
+        if self.pattern_id == 0:
+            return [text_a, '.'], [self.mask, '!', text_b]
+        elif self.pattern_id == 1:
+            return [text_a, '.'], [self.mask, '. This is the first time', text_b]
+        elif self.pattern_id == 2:
+            return [text_a, '.'], [self.mask, ". That's right .", text_b]
+        elif self.pattern_id == 3:
+            return [text_a, '?'], [self.mask, ',', text_b]
+
+    def verbalize(self, label) -> str:
+        return MrpcPVP.VERBALIZER[self.pattern_id][label]
+
+
+class Sst2PVP(PVP):
+    VERBALIZER = [
+        {'0': 'pathetic', '1': 'irresistible'},
+        {'0': 'bad', '1': 'wonderful'},
+        {'0': 'bad', '1': 'delicious'},
+        {'0': 'no', '1': 'yes'}
+    ]
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+
+        if self.pattern_id == 0:
+            return [text_a, '. A', self.mask, 'one .'], []
+        elif self.pattern_id == 1:
+            return [text_a, '. A', self.mask, 'piece .'], []
+        elif self.pattern_id == 2:
+            return [text_a, '. All in all', self.mask, '.'], []
+        elif self.pattern_id == 3:
+            return [text_a, '?', self.mask, '.'], []
+
+    def verbalize(self, label) -> str:
+        return Sst2PVP.VERBALIZER[self.pattern_id][label]
+
+
+class QqpPVP(PVP):
+    VERBALIZER = [
+        {"0": "Since", "1": "Me"},
+        {"0": "Best", "1": "Um"},
+        {"0": "Beyond", "1": "Ironically"},
+        {"0": 'No', "1": "Yes"}
+    ]
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        text_b = self.shortenable(example.text_b)
+
+        if self.pattern_id == 0:
+            return [text_a, '?'], [self.mask, ', but', text_b]
+        elif self.pattern_id == 1:
+            return [text_a, '?'], [self.mask, ', please ,', text_b]
+        elif self.pattern_id == 2:
+            return [text_a, '?'], [self.mask, ", I want to know", text_b]
+        elif self.pattern_id == 3:
+            return [text_a, '?'], [self.mask, ',', text_b]
+
+    def verbalize(self, label) -> str:
+        return QqpPVP.VERBALIZER[self.pattern_id][label]
+
+
+class QnliPVP(PVP):
+    VERBALIZER = [
+        {"entailment": "Okay", "not_entailment": "Nonetheless"},
+        {"entailment": "Notably", "not_entailment": "Yet"},
+        {"entailment": "Specifically", "not_entailment": "Notably"},
+        {"entailment": "Yes", "not_entailment": "No"},
+    ]
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        text_b = self.shortenable(example.text_b)
+
+        if self.pattern_id == 0:
+            return [text_a, '?'], [self.mask, '. Yes ,', text_b]
+        elif self.pattern_id == 1:
+            return [text_a, '?'], [self.mask, '. It is known that', text_b]
+        elif self.pattern_id == 2:
+            return [text_a, '?'], [self.mask, ", however ,", text_b]
+        elif self.pattern_id == 3:
+            return [text_a, '?'], [self.mask, ',', text_b]
+
+    def verbalize(self, label) -> str:
+        return QnliPVP.VERBALIZER[self.pattern_id][label]
+
+
+class RtePVP(PVP):
+    VERBALIZER = [
+        {"not_entailment": "Yet", "entailment": "Clearly"},
+        {"not_entailment": "meanwhile", "entailment": "Accordingly"},
+        {"not_entailment": "Meanwhile", "entailment": "So"},
+        {"not_entailment": "no", "entailment": "yes"},
+    ]
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(self.remove_final_punc(example.text_a))
+        text_b = self.shortenable(example.text_b)
+
+        if self.pattern_id == 0:
+            return [text_a, '.'], [self.mask, ', I believe', text_b]
+        elif self.pattern_id == 1:
+            return [text_a, '.'], [self.mask, ', I think that', text_b]
+        elif self.pattern_id == 2:
+            return [text_a, '.'], [self.mask, ", I think", text_b]
+        elif self.pattern_id == 3:
+            return [text_a, '?'], [self.mask, ',', text_b]
+
+    def verbalize(self, label) -> str:
+        return RtePVP.VERBALIZER[self.pattern_id][label]
+
+
+class SSt2PromptPVP(PVP):
+
+    def get_parts(self, example: InputExample) -> FilledPattern:
+        if self.pattern_id == 0:
+            return [self.shortenable(example.text_a)], ['. A', self.mask, 'piece .']
+        elif self.pattern_id == 1:
+            return [self.shortenable(example.text_a), '. A', self.mask, 'piece .'], []
+
+    def verbalize(self, label) -> List[str]:
+        pass
 
 
 class PromptPVP(PVP):
@@ -213,9 +351,12 @@ class PromptPVP(PVP):
     def verbalize(self, label) -> List[str]:
         pass
 
-
 PVPS = {
     'mnli': MnliPVP,
     'cola': ColaPVP,
-    'qnli': QnliPVP
+    'sst-2': Sst2PVP,
+    'mrpc': MrpcPVP,
+    'qqp': QqpPVP,
+    'qnli': QnliPVP,
+    'rte': RtePVP
 }
