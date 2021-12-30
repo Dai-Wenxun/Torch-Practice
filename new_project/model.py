@@ -1,3 +1,4 @@
+import torch
 from transformers import BertModel, BertPreTrainedModel
 import torch.nn as nn
 
@@ -5,7 +6,7 @@ import torch.nn as nn
 class BertPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.dense = nn.Linear(2 * config.hidden_size, config.hidden_size)
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states, mlm_labels):
@@ -34,7 +35,7 @@ class BertForPromptClassification(BertPreTrainedModel):
         input_ids=None,
         attention_mask=None,
         token_type_ids=None,
-        mlm_labels=None
+        mlm_labels=None,
     ):
         outputs = self.bert(
             input_ids,

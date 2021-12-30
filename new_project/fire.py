@@ -5,11 +5,9 @@ from logging import getLogger
 
 from logger import init_logger
 from tasks import PROCESSORS, METRICS, DEFAULT_METRICS
-from adapt_config import ADAPT_METHODS
-from trainer import Trainer, METHODS
+from trainer import METHODS
 from utils import beautify, get_local_time
-from modeling import train_single_model
-
+from modeling import train_single_model, adapt_train, baseline_train, train_final_model
 
 def main():
     parser = argparse.ArgumentParser()
@@ -17,8 +15,6 @@ def main():
     # required parameters
     parser.add_argument("--method", required=True, choices=METHODS,
                         help="The training method to use.")
-    parser.add_argument("--adapt_method", required=True, choices=ADAPT_METHODS,
-                        help="The adapt training method to use.")
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the data files for the task.")
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
@@ -36,10 +32,18 @@ def main():
                         help="<= 1 means the ratio to total train examples, > 1 means the number of train examples.")
 
     # training & evaluation parameters
+    parser.add_argument("--pattern_id", default=0, type=int,
+                        help="The ids of the PVPs to be used")
     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for training.")
-    parser.add_argument("--per_gpu_eval_batch_size", default=16, type=int,
+    parser.add_argument("--per_gpu_eval_batch_size", default=32, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
+    parser.add_argument("--per_gpu_unlabeled_batch_size", default=4, type=int,
+                        help="Batch size per GPU/CPU for auxiliary language modeling.")
+    parser.add_argument("--alpha", default=0.99, type=float,
+                        help="Weighting alpha for the auxiliary language modeling task")
+    parser.add_argument("--deta", default=0.99, type=float,
+                        help="Weighting deta for the auxiliary language modeling task")
     parser.add_argument("--num_train_epochs", default=3, type=float,
                         help="Total number of training epochs.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
@@ -50,7 +54,7 @@ def main():
                         help="Log every X updates steps.")
     parser.add_argument('--stopping_steps', type=int, default=-1,
                         help="Early stopping steps")
-    parser.add_argument('--repetitions', default=3, type=int,
+    parser.add_argument('--repetitions', default=2, type=int,
                         help="The number of times to repeat training and testing with different seeds.")
     parser.add_argument("--warmup_steps", default=0, type=int,
                         help="Linear warmup over warmup_steps.")
@@ -80,11 +84,12 @@ def main():
 
     logger.info("Parameters: {}".format(beautify(args)))
 
-    trainer = Trainer(args)
-
-    train_single_model(trainer)
+    # adapt_train(args)
+    # baseline_train(args)
+    train_single_model(args)
+    # train_final_model(args)
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2, 1, 0, 3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     main()
