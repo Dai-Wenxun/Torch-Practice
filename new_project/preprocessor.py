@@ -2,7 +2,7 @@ from typing import Union
 from abc import ABC, abstractmethod
 
 from tasks import InputExample, InputFeatures, OUTPUT_MODES
-from pvp import PVPS, PromptPVP
+from pvp import PVPS, SSt2PromptPVP
 
 
 class Preprocessor(ABC):
@@ -54,35 +54,26 @@ class Preprocessor(ABC):
         raise KeyError(output_mode)
 
 
-class MLMAdaptPreprocessor(Preprocessor):
-
-    def get_input_features(self, example: InputExample) -> InputFeatures:
-        inputs = self.raw_process(example)
-        return InputFeatures(**inputs)
-
-
 class PromptPreprocessor(Preprocessor):
-    def __init__(self, args, tokenizer, pattern_id: int = 0):
+    def __init__(self, args, tokenizer):
         super(PromptPreprocessor, self).__init__(args, tokenizer)
-        self.pvp = PromptPVP(self.args, self.tokenizer, pattern_id)
+        self.pvp0 = SSt2PromptPVP(self.args, self.tokenizer, 0)
+        self.pvp1 = SSt2PromptPVP(self.args, self.tokenizer, 1)
 
-    def get_input_features(self, example: InputExample) -> InputFeatures:
-        input_ids, token_type_ids = self.pvp.encode(example)
+    def get_input_features(self, example: InputExample):
+        input_ids, token_type_ids = self.pvp0.encode(example)
         input_ids, attention_mask, token_type_ids = self.pad_mask(input_ids, token_type_ids)
-        mlm_labels = self.pvp.get_mask_positions(input_ids)
+        mlm_labels = self.pvp0.get_mask_positions(input_ids)
 
-        return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,
-                             mlm_labels=mlm_labels)
+        f1 = InputFeatures(input_ids, attention_mask, token_type_ids, mlm_labels=mlm_labels)
 
+        input_ids, token_type_ids = self.pvp1.encode(example)
+        input_ids, attention_mask, token_type_ids = self.pad_mask(input_ids, token_type_ids)
+        mlm_labels = self.pvp1.get_mask_positions(input_ids)
 
-class PromptClassifierPreprocessor(PromptPreprocessor):
+        f2 = InputFeatures(input_ids, attention_mask, token_type_ids, mlm_labels=mlm_labels)
 
-    def get_input_features(self, example: InputExample) -> InputFeatures:
-        features = super().get_input_features(example)
-
-        features.label = self.get_label(example)
-
-        return features
+        return f1, f2
 
 
 class SequenceClassifierPreprocessor(Preprocessor):
@@ -98,17 +89,37 @@ class SequenceClassifierPreprocessor(Preprocessor):
                              label=label)
 
 
-class MLMPreprocessor(Preprocessor):
-    def __init__(self, args, tokenizer, pattern_id: int = 0):
-        super(MLMPreprocessor, self).__init__(args, tokenizer)
-        self.pvp = PVPS[args.task_name](self.args, self.tokenizer, pattern_id)
+class MLMAdaptPreprocessor(Preprocessor):
+    def __init__(self, args, tokenizer):
+        super(MLMAdaptPreprocessor, self).__init__(args, tokenizer)
+
+    def get_input_features(self, example: InputExample) -> InputFeatures:
+        inputs = self.raw_process(example)
+        return InputFeatures(**inputs)
+
+
+class PromptMLMAdaptPreprocessor(Preprocessor):
+    def __init__(self, args, tokenizer):
+        super(PromptMLMAdaptPreprocessor, self).__init__(args, tokenizer)
+        self.pvp = PVPS[args.task_name](self.args, self.tokenizer, args.pattern_id)
 
     def get_input_features(self, example: InputExample) -> InputFeatures:
         input_ids, token_type_ids = self.pvp.encode(example)
         input_ids, attention_mask, token_type_ids = self.pad_mask(input_ids, token_type_ids)
 
-        label_map = {label: i for i, label in enumerate(self.args.label_list)}
-        label = label_map[example.label] if example.label is not None else -100
+        return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+
+
+class MLMPreprocessor(Preprocessor):
+    def __init__(self, args, tokenizer):
+        super(MLMPreprocessor, self).__init__(args, tokenizer)
+        self.pvp = PVPS[args.task_name](self.args, self.tokenizer, args.pattern_id)
+
+    def get_input_features(self, example: InputExample) -> InputFeatures:
+        input_ids, token_type_ids = self.pvp.encode(example)
+        input_ids, attention_mask, token_type_ids = self.pad_mask(input_ids, token_type_ids)
+
+        label = self.get_label(example)
         mlm_labels = self.pvp.get_mask_positions(input_ids)
 
         return InputFeatures(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,
