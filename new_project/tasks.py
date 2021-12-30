@@ -14,12 +14,11 @@ logger = getLogger()
 
 
 class InputExample:
-    def __init__(self, guid, text_a, text_b=None, label=None, logits=None):
+    def __init__(self, guid, text_a, text_b=None, label=None):
         self.guid = guid
         self.text_a = text_a
         self.text_b = text_b
         self.label = label
-        self.logits = logits
 
     def __repr__(self):
         return str(self.to_json_string())
@@ -39,8 +38,8 @@ class InputFeatures:
         self.input_ids = input_ids
         self.attention_mask = attention_mask
         self.token_type_ids = token_type_ids
-        self.label = label if label else -100
-        self.mlm_labels = mlm_labels if mlm_labels else -1
+        self.label = label if label is not None else -100
+        self.mlm_labels = mlm_labels if mlm_labels is not None else -1
 
     def __repr__(self):
         return str(self.to_json_string())
